@@ -21,6 +21,15 @@ DEMO_FOUND_HOTEL_ID = "found-demo-789"
 DEMO_LOST_KEYS_ID = "lost-demo-keys"
 DEMO_FOUND_KEYS_ID = "found-demo-keys"
 DEMO_FOUND_PHONE_ID = "found-demo-phone"
+DEMO_LOST_BACKPACK_ID = "lost-demo-backpack"
+DEMO_FOUND_BACKPACK_ID = "found-demo-backpack"
+DEMO_LOST_BOTTLE_ID = "lost-demo-bottle"
+DEMO_FOUND_BOTTLE_ID = "found-demo-bottle"
+DEMO_FOUND_BOTTLE_FAR_ID = "found-demo-bottle-far"
+DEMO_LOST_GLASSES_ID = "lost-demo-glasses"
+DEMO_FOUND_GLASSES_ID = "found-demo-glasses"
+DEMO_LOST_EARBUDS_ID = "lost-demo-earbuds"
+DEMO_FOUND_EARBUDS_ID = "found-demo-earbuds"
 DEMO_PASSWORD = "demo"
 
 
@@ -64,6 +73,15 @@ PRESET_CATEGORIES = {
     "lost_keys": "keys",
     "found_keys": "keys",
     "found_phone": "phone",
+    "lost_backpack": "bag",
+    "found_backpack": "bag",
+    "lost_bottle": "bottle",
+    "found_bottle": "bottle",
+    "found_bottle_far": "bottle",
+    "lost_glasses": "glasses",
+    "found_glasses": "glasses",
+    "lost_earbuds": "electronics",
+    "found_earbuds": "electronics",
 }
 
 
@@ -241,6 +259,92 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             contact_phone="+31 6 3333 3333",
             prefer_anonymous=False,
             holding_note="I left it with the café barista.",
+        ),
+        _report_from_preset(
+            report_id=DEMO_LOST_BACKPACK_ID,
+            preset_id="lost_backpack",
+            user_id=alex.id,
+            hours_offset=-8,
+            contact_email=alex.email,
+            contact_phone="+31 6 1111 1111",
+            prefer_anonymous=False,
+        ),
+        _report_from_preset(
+            report_id=DEMO_FOUND_BACKPACK_ID,
+            preset_id="found_backpack",
+            user_id=sam.id,
+            hours_offset=-7,
+            contact_email=sam.email,
+            contact_phone="+31 6 2222 2222",
+            prefer_anonymous=True,
+            holding_note="Left with the bus-station service desk.",
+        ),
+        _report_from_preset(
+            report_id=DEMO_LOST_BOTTLE_ID,
+            preset_id="lost_bottle",
+            user_id=alex.id,
+            hours_offset=-6,
+            contact_email=alex.email,
+            contact_phone="+31 6 1111 1111",
+            prefer_anonymous=False,
+        ),
+        _report_from_preset(
+            report_id=DEMO_FOUND_BOTTLE_ID,
+            preset_id="found_bottle",
+            user_id=sam.id,
+            hours_offset=-5,
+            contact_email=sam.email,
+            contact_phone="+31 6 2222 2222",
+            prefer_anonymous=True,
+            holding_note="Left at the nearby bicycle-rental counter.",
+        ),
+        _report_from_preset(
+            report_id=DEMO_FOUND_BOTTLE_FAR_ID,
+            preset_id="found_bottle_far",
+            user_id=mia.id,
+            hours_offset=42,
+            contact_email=mia.email,
+            contact_phone="+31 6 3333 3333",
+            prefer_anonymous=False,
+            holding_note="Kept at the Amsterdam park information kiosk.",
+        ),
+        _report_from_preset(
+            report_id=DEMO_LOST_GLASSES_ID,
+            preset_id="lost_glasses",
+            user_id=alex.id,
+            hours_offset=-4,
+            contact_email=alex.email,
+            contact_phone="+31 6 1111 1111",
+            prefer_anonymous=False,
+        ),
+        _report_from_preset(
+            report_id=DEMO_FOUND_GLASSES_ID,
+            preset_id="found_glasses",
+            user_id=sam.id,
+            hours_offset=-3,
+            contact_email=sam.email,
+            contact_phone="+31 6 2222 2222",
+            prefer_anonymous=True,
+            holding_note="Left at the university library information desk.",
+        ),
+        _report_from_preset(
+            report_id=DEMO_LOST_EARBUDS_ID,
+            preset_id="lost_earbuds",
+            user_id=alex.id,
+            hours_offset=-2,
+            contact_email=alex.email,
+            contact_phone="+31 6 1111 1111",
+            prefer_anonymous=False,
+        ),
+        _report_from_preset(
+            report_id=DEMO_FOUND_EARBUDS_ID,
+            preset_id="found_earbuds",
+            user_id=mia.id,
+            hours_offset=-1,
+            contact_email=mia.email,
+            contact_phone="+31 6 3333 3333",
+            prefer_anonymous=False,
+            holding_note="I have it and can meet at the bus stop.",
         ),
     )
     for report in specs:

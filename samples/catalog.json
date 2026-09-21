@@ -70,6 +70,74 @@
         "longitude": 5.6898,
         "radius_meters": 500
       }
+    },
+    {
+      "id": "F_green_bottle_strong",
+      "lost": {
+        "description": "Dark green metal water bottle covered in environmental stickers. Lost by the Vrijthof bicycle racks.",
+        "image": "images/lost_green_bottle.png",
+        "event_time_offset_hours": -6,
+        "latitude": 50.849,
+        "longitude": 5.6879,
+        "radius_meters": 250
+      },
+      "found": {
+        "description": "Green reusable metal bottle covered with travel stickers, found beside the Vrijthof bike parking.",
+        "image": "images/found_green_bottle.png",
+        "event_time_offset_hours": -5,
+        "latitude": 50.8491,
+        "longitude": 5.6881,
+        "radius_meters": 250
+      }
+    },
+    {
+      "id": "F2_green_bottle_far_distractor",
+      "found": {
+        "description": "Plain dark green insulated bottle with a black cap, found on a path in Amsterdam.",
+        "image": "images/found_green_bottle_far.png",
+        "event_time_offset_hours": 42,
+        "latitude": 52.3702,
+        "longitude": 4.8952,
+        "radius_meters": 300
+      }
+    },
+    {
+      "id": "G_black_glasses_strong",
+      "lost": {
+        "description": "Black rectangular prescription glasses with a blue hard case, lost in a university library study room.",
+        "image": "images/lost_black_glasses.png",
+        "event_time_offset_hours": -4,
+        "latitude": 50.8479,
+        "longitude": 5.6884,
+        "radius_meters": 200
+      },
+      "found": {
+        "description": "Black rectangular glasses and a dark blue case found under a desk in the university library.",
+        "image": "images/found_black_glasses.png",
+        "event_time_offset_hours": -3,
+        "latitude": 50.848,
+        "longitude": 5.6885,
+        "radius_meters": 200
+      }
+    },
+    {
+      "id": "H_white_earbuds_strong",
+      "lost": {
+        "description": "Heavily scratched white wireless-earbuds charging case, lost near the main bus stop.",
+        "image": "images/lost_white_earbuds.png",
+        "event_time_offset_hours": -2,
+        "latitude": 50.8506,
+        "longitude": 5.6907,
+        "radius_meters": 200
+      },
+      "found": {
+        "description": "Dirty white wireless-earbuds charging case found beside the bus-stop footpath.",
+        "image": "images/found_white_earbuds.png",
+        "event_time_offset_hours": -1,
+        "latitude": 50.8507,
+        "longitude": 5.6908,
+        "radius_meters": 200
+      }
     }
   ]
 }

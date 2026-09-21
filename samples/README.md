@@ -67,12 +67,65 @@ Optionally set found time to 3 days later and latitude `52.3702`.
 
 ---
 
+## Scenario F — green bottle match + far distractor
+
+| Role | Description (copy) | Image |
+|------|--------------------|-------|
+| **Lost** | Dark green metal water bottle covered in environmental stickers. Lost by the Vrijthof bicycle racks. | `lost_green_bottle.png` |
+| **Found** | Green reusable metal bottle covered with travel stickers, found beside the Vrijthof bike parking. | `found_green_bottle.png` |
+| **Found distractor** | Plain dark green insulated bottle with a black cap, found on a path in Amsterdam. | `found_green_bottle_far.png` |
+
+The strong pair is about 20 metres apart and one hour apart. The distractor is in
+Amsterdam and 48 hours later, so geo/time should reduce its score even though the
+category and colour are similar.
+
+---
+
+## Scenario G — glasses match
+
+| Role | Description (copy) | Image |
+|------|--------------------|-------|
+| **Lost** | Black rectangular prescription glasses with a blue hard case, lost in a university library study room. | `lost_black_glasses.png` |
+| **Found** | Black rectangular glasses and a dark blue case found under a desk in the university library. | `found_black_glasses.png` |
+
+The reports are in the same library area and one hour apart.
+
+---
+
+## Scenario H — earbuds-case match
+
+| Role | Description (copy) | Image |
+|------|--------------------|-------|
+| **Lost** | Heavily scratched white wireless-earbuds charging case, lost near the main bus stop. | `lost_white_earbuds.png` |
+| **Found** | Dirty white wireless-earbuds charging case found beside the bus-stop footpath. | `found_white_earbuds.png` |
+
+The reports are at the same bus stop and one hour apart.
+
+---
+
+## Online photo sources for scenarios F–H
+
+These are externally hosted user/listing photos for demo use; redistribution rights
+have not been verified.
+
+- `lost_green_bottle.png`: CustomStickers.com blog photo
+- `found_green_bottle.png`: Mercado Libre listing photo
+- `found_green_bottle_far.png`: Poshmark listing photo
+- `lost_black_glasses.png`: Pikabu user photo
+- `found_black_glasses.png`: Letgo listing photo
+- `lost_white_earbuds.png`: Allegro Lokalnie listing photo
+- `found_white_earbuds.png`: Trojmiasto reader-submitted lost-and-found photo
+
+---
+
 ## Quick demo script
 
 1. Submit **Lost** from Scenario A (description + `lost_black_wallet.png`).
 2. Submit **Found** from A, B, C, and D (each with its image).
 3. Open **Matches**, select the lost wallet.
 4. Check ranking: A first, B mid, phone last; keys should not beat the dark wallet.
+5. Reload demo data to add the backpack, bottle, glasses, and earbuds reports.
+6. Confirm each near pair ranks above the far bottle distractor.
 
 For offline/CI without model downloads:
 
