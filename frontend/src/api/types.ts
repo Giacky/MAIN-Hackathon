@@ -107,11 +107,10 @@ export interface CoordinationMessage {
   created_at?: string
 }
 
+/** Contact the API is willing to show the viewer; null when the other party is anonymous. */
 export interface OtherContact {
-  display_name?: string | null
-  contact_email?: string | null
-  contact_phone?: string | null
-  prefer_anonymous?: boolean
+  email?: string | null
+  phone?: string | null
 }
 
 export interface CoordinationPayload {

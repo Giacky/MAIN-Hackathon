@@ -81,10 +81,7 @@ export function PickupPage() {
   }
 
   const contact = data.other_contact
-  const anonymous =
-    contact == null ||
-    contact.prefer_anonymous ||
-    (!contact.contact_email && !contact.contact_phone && !contact.display_name)
+  const anonymous = contact == null || (!contact.email && !contact.phone)
 
   async function postMessage(e: FormEvent) {
     e.preventDefault()
@@ -187,22 +184,24 @@ export function PickupPage() {
           </p>
         ) : (
           <dl className="mt-2 space-y-1 text-sm">
-            {contact?.display_name ? (
-              <div>
-                <dt className="text-muted">Name</dt>
-                <dd>{contact.display_name}</dd>
-              </div>
-            ) : null}
-            {contact?.contact_email ? (
+            {contact?.email ? (
               <div>
                 <dt className="text-muted">Email</dt>
-                <dd>{contact.contact_email}</dd>
+                <dd>
+                  <a className="underline" href={`mailto:${contact.email}`}>
+                    {contact.email}
+                  </a>
+                </dd>
               </div>
             ) : null}
-            {contact?.contact_phone ? (
+            {contact?.phone ? (
               <div>
                 <dt className="text-muted">Phone</dt>
-                <dd>{contact.contact_phone}</dd>
+                <dd>
+                  <a className="underline" href={`tel:${contact.phone.replace(/\s+/g, '')}`}>
+                    {contact.phone}
+                  </a>
+                </dd>
               </div>
             ) : null}
           </dl>

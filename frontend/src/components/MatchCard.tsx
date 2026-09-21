@@ -51,6 +51,19 @@ export function MatchCard({ match, anchorType }: MatchCardProps) {
     visualLine = 'Not in the visual shortlist'
   }
 
+  const category = other.category && !/mock|unclassified/i.test(other.category) ? other.category : null
+  const heading = category
+    ? category.charAt(0).toUpperCase() + category.slice(1)
+    : other.report_type === 'found'
+      ? 'Found item'
+      : 'Lost item'
+  const distance =
+    match.distance_meters != null
+      ? match.distance_meters >= 1000
+        ? `${(match.distance_meters / 1000).toFixed(1)} km apart`
+        : `${Math.round(match.distance_meters)} m apart`
+      : null
+
   return (
     <Card padded={false} className="overflow-hidden animate-in">
       <div className="relative aspect-[4/3] bg-cream">
@@ -71,11 +84,19 @@ export function MatchCard({ match, anchorType }: MatchCardProps) {
 
       <div className="space-y-3 p-4">
         <div>
-          <h3 className="font-display text-lg leading-snug text-ink">
-            {other.description.slice(0, 80)}
-            {other.description.length > 80 ? '…' : ''}
-          </h3>
-          <p className="mt-1 line-clamp-2 text-sm text-muted">{other.description}</p>
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="font-display text-lg leading-snug text-ink">{heading}</h3>
+            {distance ? <span className="text-xs text-muted">{distance}</span> : null}
+          </div>
+          <p className="mt-1 line-clamp-2 text-sm text-ink">{other.description}</p>
+          {other.holding_note ? (
+            <p className="mt-1 text-xs text-muted">Where it is now: {other.holding_note}</p>
+          ) : null}
+          {other.prefer_anonymous ? (
+            <p className="mt-1 text-xs text-muted">
+              {other.report_type === 'found' ? 'Finder' : 'Owner'} is staying anonymous
+            </p>
+          ) : null}
         </div>
 
         <div className="grid grid-cols-2 gap-x-3 gap-y-2">
