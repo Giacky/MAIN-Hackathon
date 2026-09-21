@@ -35,10 +35,12 @@ class SQLiteRepository:
                 """
                 INSERT OR REPLACE INTO reports (
                     id, report_type, description, category, urgency, created_at,
-                    event_time, latitude, longitude, radius_meters, image_paths, status
+                    event_time, latitude, longitude, radius_meters, image_paths,
+                    locations, status
                 ) VALUES (
                     :id, :report_type, :description, :category, :urgency, :created_at,
-                    :event_time, :latitude, :longitude, :radius_meters, :image_paths, :status
+                    :event_time, :latitude, :longitude, :radius_meters, :image_paths,
+                    :locations, :status
                 )
                 """,
                 values,

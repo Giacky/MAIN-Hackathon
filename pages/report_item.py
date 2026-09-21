@@ -5,7 +5,8 @@ from datetime import datetime
 import streamlit as st
 
 from database.repository import SQLiteRepository
-from models.schemas import Report, ReportType
+from models.schemas import LocationGuess, Report, ReportType
+from utils.map_pin import pins, render_location_map, render_pin_details
 
 
 @st.cache_resource
@@ -20,6 +21,22 @@ def render() -> None:
 
     initial_type = st.session_state.get("report_type", ReportType.LOST.value)
     initial_index = 0 if initial_type == ReportType.LOST.value else 1
+
+    map_col, detail_col = st.columns([1.7, 1], gap="large")
+    with map_col:
+        with st.container(border=True):
+            st.subheader("Possible locations", icon=":material/map:")
+            st.caption(
+                "Click to add pins, or skip the map if you are not sure. "
+                "Each pin can have its own range."
+            )
+            render_location_map(map_key="report_page", height=420)
+    with detail_col:
+        with st.container(border=True):
+            st.subheader("Pin details", icon=":material/place:")
+            render_pin_details()
+
+    location_pins = pins()
 
     with st.form("report-item-form", clear_on_submit=True):
         report_type_value = st.radio(
@@ -36,18 +53,6 @@ def render() -> None:
         )
         event_date = st.date_input("Approximate date")
         event_time = st.time_input("Approximate time")
-
-        st.markdown("**Approximate location**")
-        latitude_column, longitude_column, radius_column = st.columns(3)
-        latitude = latitude_column.number_input(
-            "Latitude", min_value=-90.0, max_value=90.0, value=50.8514, format="%.6f"
-        )
-        longitude = longitude_column.number_input(
-            "Longitude", min_value=-180.0, max_value=180.0, value=5.6900, format="%.6f"
-        )
-        radius_meters = radius_column.number_input(
-            "Search radius (m)", min_value=10, max_value=100_000, value=500, step=50
-        )
         submitted = st.form_submit_button("Submit report", type="primary")
 
     if submitted:
@@ -55,18 +60,36 @@ def render() -> None:
             st.error("Please add a short description before submitting.")
             return
 
+        locations = tuple(
+            LocationGuess(
+                id=pin["id"],
+                latitude=pin["lat"],
+                longitude=pin["lon"],
+                radius_meters=float(pin["radius_meters"]),
+            )
+            for pin in location_pins
+        )
+        first = locations[0] if locations else None
         report = Report(
             report_type=ReportType(report_type_value.lower()),
             description=description.strip(),
             event_time=datetime.combine(event_date, event_time),
-            latitude=latitude,
-            longitude=longitude,
-            radius_meters=float(radius_meters),
-            # Upload persistence is intentionally left to the integration workstream.
+            latitude=first.latitude if first else None,
+            longitude=first.longitude if first else None,
+            radius_meters=first.radius_meters if first else None,
+            locations=locations,
             image_paths=(),
         )
         _repository().add_report(report)
-        st.success(f"Report {report.id[:8]} saved to the local skeleton database.")
+        if locations:
+            st.success(
+                f"Report {report.id[:8]} saved with {len(locations)} location guess"
+                f"{'es' if len(locations) != 1 else ''}."
+            )
+        else:
+            st.success(
+                f"Report {report.id[:8]} saved without a location. You can add pins later."
+            )
         if images:
             st.info(
                 f"{len(images)} image(s) selected. Durable upload storage is a placeholder, "
@@ -82,6 +105,15 @@ def render() -> None:
                     "latitude": report.latitude,
                     "longitude": report.longitude,
                     "radius_meters": report.radius_meters,
+                    "locations": [
+                        {
+                            "id": location.id,
+                            "latitude": location.latitude,
+                            "longitude": location.longitude,
+                            "radius_meters": location.radius_meters,
+                        }
+                        for location in report.locations
+                    ],
                     "image_paths": report.image_paths,
                     "status": report.status.value,
                 }

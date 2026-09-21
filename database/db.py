@@ -42,6 +42,7 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 longitude REAL,
                 radius_meters REAL,
                 image_paths TEXT NOT NULL DEFAULT '[]',
+                locations TEXT NOT NULL DEFAULT '[]',
                 status TEXT NOT NULL
             );
 
@@ -76,3 +77,10 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
             );
             """
         )
+        columns = {
+            row[1] for row in database.execute("PRAGMA table_info(reports)").fetchall()
+        }
+        if "locations" not in columns:
+            database.execute(
+                "ALTER TABLE reports ADD COLUMN locations TEXT NOT NULL DEFAULT '[]'"
+            )

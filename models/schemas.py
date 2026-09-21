@@ -21,6 +21,16 @@ class ReportStatus(str, Enum):
 
 
 @dataclass(slots=True)
+class LocationGuess:
+    """One possible place an item was lost or found, with an uncertainty range."""
+
+    latitude: float
+    longitude: float
+    radius_meters: float = 200.0
+    id: str = field(default_factory=lambda: str(uuid4()))
+
+
+@dataclass(slots=True)
 class Report:
     report_type: ReportType
     description: str
@@ -32,6 +42,7 @@ class Report:
     latitude: float | None = None
     longitude: float | None = None
     radius_meters: float | None = None
+    locations: tuple[LocationGuess, ...] = ()
     image_paths: tuple[str, ...] = ()
     status: ReportStatus = ReportStatus.OPEN
 
