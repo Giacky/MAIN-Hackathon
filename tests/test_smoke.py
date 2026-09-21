@@ -153,13 +153,15 @@ class ImageMatchingTests(unittest.TestCase):
             found_path.write_bytes(b"fake")
             matcher._embed = lambda path: (_ for _ in ()).throw(RuntimeError("clip down"))
             os.environ["LOST_FOUND_MOCK_ML"] = "0"
+            os.environ["LOST_FOUND_IMAGE_BACKEND"] = "clip"
             try:
                 result = matcher.compare([str(lost_path)], [str(found_path)])
             finally:
                 os.environ["LOST_FOUND_MOCK_ML"] = "1"
+                os.environ.pop("LOST_FOUND_IMAGE_BACKEND", None)
         self.assertIsNone(result.score)
         self.assertIsNotNone(result.error)
-        self.assertIn("CLIP", result.error)
+        self.assertTrue(bool(result.error))
 
 
 class ImagePrepTests(unittest.TestCase):

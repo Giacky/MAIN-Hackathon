@@ -4,7 +4,7 @@ from collections.abc import Iterable
 
 from models.schemas import MatchResult, Report, ReportType
 from services.geo_matching import GeoMatcher
-from services.image_matching import ImageMatcher
+from services.image_matching import ImageCompareResult, ImageMatcher
 from services.item_type import resolved_item_type
 from services.text_similarity import TextSimilarityService
 from services.time_matching import TimeMatcher
@@ -86,6 +86,23 @@ def gate_reason(text_score: float, category_score: float | None) -> str | None:
     return None
 
 
+def _visual_fields(image: ImageCompareResult) -> dict:
+    """Copy shortlist evidence onto MatchResult only when a photo score exists."""
+    if image.score is None or not image.shortlisted:
+        return {
+            "visual_shortlisted": None,
+            "visual_dino_score": None,
+            "visual_inliers": None,
+            "visual_inlier_ratio": None,
+        }
+    return {
+        "visual_shortlisted": True,
+        "visual_dino_score": image.dino_score,
+        "visual_inliers": image.inliers,
+        "visual_inlier_ratio": image.inlier_ratio,
+    }
+
+
 class MatchingEngine:
     """Combine matching services behind one UI-facing interface."""
 
@@ -110,17 +127,25 @@ class MatchingEngine:
                 f"lost_report must have report_type=LOST (got {_type_value(lost_report)!r})"
             )
 
+        found_list = [
+            found_report
+            for found_report in found_reports
+            if _type_value(found_report) == ReportType.FOUND.value
+        ]
+        image_by_id = self.image_matcher.score_candidates(
+            lost_report.image_paths,
+            tuple((found.id, found.image_paths) for found in found_list),
+        )
+
         results: list[MatchResult] = []
-        for found_report in found_reports:
-            if _type_value(found_report) != ReportType.FOUND.value:
-                continue
+        for found_report in found_list:
             text_score = self.text_matcher.compare(
                 lost_report.description, found_report.description
             )
             geo = self.geo_matcher.compare(lost_report, found_report)
             time_score = self.time_matcher.compare(lost_report, found_report)
-            image = self.image_matcher.compare(
-                lost_report.image_paths, found_report.image_paths
+            image = image_by_id.get(
+                found_report.id, ImageCompareResult(score=None)
             )
             category_score = category_compatibility(lost_report, found_report)
             blended = weighted_overall(
@@ -143,6 +168,7 @@ class MatchingEngine:
                     time_score=time_score,
                     distance_meters=geo.distance_meters,
                     image_error=image.error,
+                    **_visual_fields(image),
                 )
             )
         return sorted(results, key=lambda match: match.overall_score, reverse=True)
