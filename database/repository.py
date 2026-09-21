@@ -8,6 +8,7 @@ from database.models import (
     meetup_to_row,
     report_to_row,
     row_to_chat_message,
+    row_to_match,
     row_to_meetup,
     row_to_report,
     row_to_user,
@@ -80,6 +81,18 @@ class SQLiteRepository:
             ).fetchall()
         return [row_to_report(row) for row in rows]
 
+    def list_open_reports(self) -> list[Report]:
+        return [
+            report
+            for report in self.list_reports()
+            if (
+                report.status.value
+                if isinstance(report.status, ReportStatus)
+                else str(report.status)
+            )
+            != ReportStatus.RECOVERED.value
+        ]
+
     def list_reports_for_user(self, user_id: str) -> list[Report]:
         with connection(self.database_path) as database:
             rows = database.execute(
@@ -118,6 +131,16 @@ class SQLiteRepository:
                 ),
             )
         return match
+
+    def list_matches(self) -> list[MatchResult]:
+        with connection(self.database_path) as database:
+            rows = database.execute(
+                """
+                SELECT * FROM matches
+                ORDER BY overall_score DESC
+                """
+            ).fetchall()
+        return [row_to_match(row) for row in rows]
 
     def add_chat_message(self, message: ChatMessage) -> ChatMessage:
         with connection(self.database_path) as database:

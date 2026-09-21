@@ -1,4 +1,4 @@
-"""Rank stored found reports against a selected lost report."""
+"""Rank lost and found reports, then open pickup for a pair."""
 
 import streamlit as st
 
@@ -16,7 +16,6 @@ def _repository() -> SQLiteRepository:
 
 
 def _engine() -> MatchingEngine:
-    # Fresh instance each run — cached engines keep stale methods after Streamlit reload.
     return MatchingEngine()
 
 
@@ -31,11 +30,15 @@ def _label(report: Report) -> str:
     preview = report.description.strip().replace("\n", " ")
     if len(preview) > 72:
         preview = preview[:69] + "..."
-    return f"[{_report_type_value(report)}] {preview} ({report.id[:8]})"
+    owner = "you" if st.session_state.get("_matches_user_id") == report.user_id else ""
+    prefix = f"[{_report_type_value(report)}]"
+    if owner:
+        prefix += " yours"
+    return f"{prefix} {preview}"
 
 
-def _split_reports() -> tuple[list[Report], list[Report]]:
-    reports = _repository().list_reports()
+def _split_open_reports() -> tuple[list[Report], list[Report]]:
+    reports = _repository().list_open_reports()
     lost_reports = [
         report
         for report in reports
@@ -51,58 +54,29 @@ def _split_reports() -> tuple[list[Report], list[Report]]:
 
 def _render_debug_tools() -> None:
     st.divider()
-    with st.expander("Demo / debug tools", expanded=False):
+    with st.expander("Demo tools", expanded=False):
         st.caption(f"Database: `{DATABASE_PATH}`")
-        if st.button(
-            "Reset DB → 2 lost + 4 found",
-            key="debug-reset-db",
-            width="stretch",
-        ):
+        if st.button("Reload demo users + sample reports", width="stretch"):
             lost_reports, _found = seed_demo_reports()
             st.cache_resource.clear()
             st.session_state["demo_lost_id"] = lost_reports[0].id
-            st.success("Seeded 2 lost and 4 found sample reports.")
-            st.rerun()
-        if st.button("Clear Streamlit caches", key="debug-clear-cache", width="stretch"):
-            st.cache_resource.clear()
-            st.cache_data.clear()
-            st.success("Caches cleared.")
+            st.success("Reloaded Alex, Sam, Mia and their sample items.")
             st.rerun()
 
 
-def render() -> None:
-    st.title("Potential matches")
-    st.caption("Ranked by text, location, time, and images when both sides have photos.")
+def _persist(matches) -> None:
+    repository = _repository()
+    for match in matches:
+        repository.save_match(match)
 
-    user = current_user()
-    if user:
-        st.caption(
-            f"Signed in as {user.display_name}. Arrange pickup from a match card."
-        )
-    else:
-        st.caption("Log in to attach reports to your account before arranging pickup.")
 
-    # One-time cache bust after the enum/hot-reload matching bug.
-    if not st.session_state.get("_matches_cache_busted"):
-        st.cache_resource.clear()
-        st.session_state["_matches_cache_busted"] = True
-
-    lost_reports, found_reports = _split_reports()
-
+def _render_lost_tab(lost_reports: list[Report], found_reports: list[Report], user) -> None:
     if not lost_reports or not found_reports:
-        st.warning(
-            "Need at least one lost and one found report. "
-            "Open the debug tools at the bottom to seed demo data."
-        )
-        _render_debug_tools()
+        st.warning("Need at least one open lost report and one found report.")
         return
 
-    st.caption(
-        f"**{len(lost_reports)} lost · {len(found_reports)} found** in `{DATABASE_PATH.name}`"
-    )
-
-    demo_lost_id = st.session_state.get("demo_lost_id")
     default_index = 0
+    demo_lost_id = st.session_state.get("demo_lost_id")
     if demo_lost_id:
         for index, report in enumerate(lost_reports):
             if report.id == demo_lost_id:
@@ -115,7 +89,7 @@ def render() -> None:
                 break
 
     selected_index = st.selectbox(
-        "Lost item to match",
+        "Lost item",
         options=list(range(len(lost_reports))),
         index=min(default_index, len(lost_reports) - 1),
         format_func=lambda index: _label(lost_reports[index]),
@@ -123,33 +97,102 @@ def render() -> None:
     selected = lost_reports[selected_index]
     render_lost_context(selected)
 
-    try:
-        with st.spinner("Scoring found reports (text / location / time / image)…"):
-            matches = _engine().rank_matches(selected, found_reports)
-    except Exception as exc:
-        st.error(f"Matching failed: {exc}")
-        st.caption(
-            f"Selected report_type={_report_type_value(selected)!r} id={selected.id[:8]}"
-        )
-        _render_debug_tools()
-        return
+    other_found = [
+        report
+        for report in found_reports
+        if not (selected.user_id and report.user_id == selected.user_id)
+    ]
+    with st.spinner("Ranking found reports…"):
+        matches = _engine().rank_matches(selected, other_found)
+    _persist(matches)
 
-    found_by_id = {report.id: report for report in found_reports}
-    if not matches:
-        st.warning("No found reports could be scored.")
-        _render_debug_tools()
-        return
+    strong = [match for match in matches if match.overall_score > 0]
+    weak = [match for match in matches if match.overall_score <= 0]
+    found_by_id = {report.id: report for report in other_found}
 
-    st.markdown(f"### Ranked found reports ({len(matches)})")
-    st.caption(
-        "Each card pairs your lost item with one found item. "
-        "Scores use **text + location + time**, and **image** when both reports have photos."
-    )
-    for match in matches:
+    if not strong:
+        st.info("No likely found items for this report.")
+    for match in strong:
         render_match_card(
             match,
             found_by_id.get(match.found_report_id),
             lost_report=selected,
         )
+    if weak:
+        with st.expander(f"Unlikely matches ({len(weak)})"):
+            for match in weak:
+                render_match_card(
+                    match,
+                    found_by_id.get(match.found_report_id),
+                    lost_report=selected,
+                    allow_pickup=False,
+                )
+
+
+def _render_found_tab(lost_reports: list[Report], found_reports: list[Report], user) -> None:
+    if not lost_reports or not found_reports:
+        st.warning("Need at least one open lost report and one found report.")
+        return
+
+    default_index = 0
+    if user:
+        for index, report in enumerate(found_reports):
+            if report.user_id == user.id:
+                default_index = index
+                break
+
+    selected_index = st.selectbox(
+        "Found item",
+        options=list(range(len(found_reports))),
+        index=min(default_index, len(found_reports) - 1),
+        format_func=lambda index: _label(found_reports[index]),
+        key="found-item-select",
+    )
+    selected_found = found_reports[selected_index]
+    other_lost = [
+        report
+        for report in lost_reports
+        if not (selected_found.user_id and report.user_id == selected_found.user_id)
+    ]
+
+    ranked: list = []
+    engine = _engine()
+    for lost in other_lost:
+        matches = engine.rank_matches(lost, [selected_found])
+        if matches:
+            ranked.append((matches[0], lost))
+    ranked.sort(key=lambda pair: pair[0].overall_score, reverse=True)
+    _persist([match for match, _lost in ranked])
+
+    strong = [(match, lost) for match, lost in ranked if match.overall_score > 0]
+    if not strong:
+        st.info("No likely lost items for this find.")
+        return
+    for match, lost in strong:
+        render_match_card(match, selected_found, lost_report=lost)
+
+
+def render() -> None:
+    st.title("Matches")
+    st.caption("Compare a lost report with found reports using text, photos, map pins, and time.")
+
+    user = current_user()
+    st.session_state["_matches_user_id"] = user.id if user else None
+    if user:
+        st.caption(f"Signed in as {user.display_name}. Pickup stays on your account.")
+    else:
+        st.caption("Log in so pickup can tell which side of the match you are.")
+
+    lost_reports, found_reports = _split_open_reports()
+    view = st.radio(
+        "I want to match",
+        ["a lost item", "a found item"],
+        horizontal=True,
+        key="matches_side",
+    )
+    if view == "a lost item":
+        _render_lost_tab(lost_reports, found_reports, user)
+    else:
+        _render_found_tab(lost_reports, found_reports, user)
 
     _render_debug_tools()

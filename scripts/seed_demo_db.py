@@ -8,7 +8,7 @@ if __name__ == "__main__":
     print(f"Database reset: {DATABASE_PATH}")
     print(f"Lost ({len(lost_reports)}):")
     for report in lost_reports:
-        print(f"  - {report.id[:8]}  {report.description[:60]}...")
+        print(f"  - {report.id}  {report.description[:60]}")
     print(f"Found ({len(found_reports)}):")
     for report in found_reports:
-        print(f"  - {report.id[:8]}  {report.description[:60]}...")
+        print(f"  - {report.id}  {report.description[:60]}")

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 import streamlit as st
 
+import page_defs
 from database.repository import SQLiteRepository
 from models.schemas import (
     ChatMessage,
@@ -14,12 +15,9 @@ from models.schemas import (
 )
 from pages.account import current_user
 from services.coordination import (
-    DEMO_FOUND_LIBRARY_ID,
-    DEMO_LOST_ID,
     can_respond_to_meetup,
     contact_for_viewer,
     display_name_for_sender,
-    ensure_demo_handoff_reports,
     is_own_report,
     role_for_user,
 )
@@ -59,8 +57,7 @@ def _render_other_contact(other: Report, role: str) -> None:
     email, phone = contact_for_viewer(other, role)
     if other.prefer_anonymous and not is_own_report(other, role):
         st.info(
-            "The other person is staying anonymous. Arrange pickup with a meetup "
-            "instead of asking for a phone number."
+            "The other person is staying anonymous. Agree on a public meetup instead."
         )
         return
     _format_contact(email, phone)
@@ -88,7 +85,7 @@ def _render_my_contact(own: Report, role: str) -> None:
         own.contact_phone = phone.strip() or None
         own.prefer_anonymous = prefer_anonymous
         _repository().add_report(own)
-        st.success("Saved. The other person only sees this if you are not anonymous.")
+        st.success("Saved.")
         st.rerun()
 
 
@@ -96,7 +93,7 @@ def _render_meetup(match_id: str, role: str) -> None:
     st.subheader("Meetup")
     meetup = _repository().get_meetup(match_id)
     if meetup is None:
-        st.caption("Propose a public place and time. Nobody has to share a personal address.")
+        st.caption("Propose a public place and time. Nobody has to share a home address.")
     elif meetup.status is MeetupStatus.ACCEPTED:
         st.success(
             f"Agreed: {meetup.location_name} at "
@@ -126,7 +123,10 @@ def _render_meetup(match_id: str, role: str) -> None:
         custom = st.text_input("Custom place", placeholder="Cafe on the corner, ...")
         meeting_date = st.date_input("Date", value=datetime.now().date())
         meeting_time = st.time_input(
-            "Time", value=(datetime.now() + timedelta(hours=2)).time().replace(second=0, microsecond=0)
+            "Time",
+            value=(datetime.now() + timedelta(hours=2)).time().replace(
+                second=0, microsecond=0
+            ),
         )
         submitted = st.form_submit_button("Propose meetup")
 
@@ -148,9 +148,7 @@ def _render_meetup(match_id: str, role: str) -> None:
 
 def _render_notes(match_id: str, role: str) -> None:
     st.subheader("Short notes")
-    st.caption("Optional. Prefer the meetup card for time and place so details stay clear.")
-    if st.button("Refresh notes"):
-        st.rerun()
+    st.caption("Optional. Use the meetup card for time and place.")
     for message in _repository().list_chat_messages(match_id):
         speaker = display_name_for_sender(message.sender, role)
         with st.chat_message("user" if message.sender == role else "assistant"):
@@ -163,35 +161,50 @@ def _render_notes(match_id: str, role: str) -> None:
         st.rerun()
 
 
-def _query_id(name: str, session_key: str, fallback: str) -> str:
-    value = st.query_params.get(name)
-    if isinstance(value, (list, tuple)):
-        value = value[0] if value else None
-    if value:
-        return str(value)
-    return st.session_state.get(session_key) or fallback
+def _selected_pair(repository: SQLiteRepository) -> tuple[str | None, str | None]:
+    lost_id = st.session_state.get("recovery_lost_id")
+    found_id = st.session_state.get("recovery_found_id")
+    query_lost = st.query_params.get("lost")
+    query_found = st.query_params.get("found")
+    if query_lost:
+        lost_id = query_lost if isinstance(query_lost, str) else query_lost[0]
+    if query_found:
+        found_id = query_found if isinstance(query_found, str) else query_found[0]
+    if lost_id and found_id:
+        return str(lost_id), str(found_id)
+
+    matches = repository.list_matches()
+    if matches:
+        top = matches[0]
+        return top.lost_report_id, top.found_report_id
+    return None, None
 
 
 def render() -> None:
     repository = _repository()
-    ensure_demo_handoff_reports(repository)
+    lost_id, found_id = _selected_pair(repository)
+    if not lost_id or not found_id:
+        st.title("Arrange pickup")
+        st.info("Open a match and choose Arrange pickup.")
+        if st.button("Go to Matches", type="primary"):
+            st.switch_page(page_defs.matches_page)
+        return
 
-    lost_id = _query_id("lost", "recovery_lost_id", DEMO_LOST_ID)
-    found_id = _query_id("found", "recovery_found_id", DEMO_FOUND_LIBRARY_ID)
     st.session_state["recovery_lost_id"] = lost_id
     st.session_state["recovery_found_id"] = found_id
-
     lost = repository.get_report(lost_id)
     found = repository.get_report(found_id)
     if lost is None or found is None:
-        st.title("Recovery")
-        st.error("No match selected yet. Open a match and choose Arrange pickup.")
+        st.title("Arrange pickup")
+        st.error("That match is no longer in the database.")
+        if st.button("Go to Matches"):
+            st.switch_page(page_defs.matches_page)
         return
 
     st.title("Arrange pickup")
     st.caption(
-        "Share contact only if both people want to. Finders can stay anonymous and "
-        "still agree on a public meetup."
+        "Share contact only if both people want to. Finders can stay anonymous "
+        "and still agree on a public meetup."
     )
 
     user = current_user()
@@ -204,23 +217,20 @@ def render() -> None:
     if user and inferred_role:
         role = inferred_role
         side = "lost this item" if role == "lost" else "found this item"
-        st.info(f"Signed in as **{user.display_name}**. You are the person who {side}.")
+        st.info(f"Signed in as **{user.display_name}**. You {side}.")
     elif user:
         st.warning(
-            "This match is not linked to your account, so you cannot switch into "
-            "the other person's role."
+            "This match is not linked to your account. "
+            "Log in as the owner or finder, or open one of your own matches."
         )
-        st.caption("Open one of your matches from the Matches page.")
+        if st.button("Go to Account"):
+            st.switch_page(page_defs.account_page)
         return
     else:
-        st.caption("Log in to lock this page to your own lost or found report.")
-        role_label = st.radio(
-            "I am viewing as",
-            ["the person who lost this item", "the person who found this item"],
-            horizontal=True,
-            key="recovery_role_label",
-        )
-        role = "lost" if role_label.startswith("the person who lost") else "found"
+        st.warning("Log in so this page stays on your lost or found report.")
+        if st.button("Go to Account", type="primary"):
+            st.switch_page(page_defs.account_page)
+        return
 
     st.write(f"**Lost:** {lost.description}")
     st.write(f"**Found:** {found.description}")

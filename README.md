@@ -1,6 +1,6 @@
 # Smart Lost & Found
 
-A small, runnable foundation for a three-person hackathon project. Users can submit lost/found reports; the Mac demo server classifies descriptions, stores optional photos, and ranks matches. Chat and map are still placeholders.
+A small Streamlit app for a three-person hackathon. People sign in, report a lost or found item (with optional photos and map pins), rank likely matches, then arrange a public pickup. Finders can stay anonymous.
 
 ## Setup
 

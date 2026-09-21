@@ -9,6 +9,7 @@ from typing import Any
 from models.schemas import (
     ChatMessage,
     LocationGuess,
+    MatchResult,
     Meetup,
     MeetupStatus,
     Report,
@@ -89,6 +90,19 @@ def row_to_report(row: sqlite3.Row) -> Report:
         contact_phone=_row_value(row, "contact_phone"),
         prefer_anonymous=bool(_row_value(row, "prefer_anonymous", 0)),
         user_id=_row_value(row, "user_id"),
+    )
+
+
+def row_to_match(row: sqlite3.Row) -> MatchResult:
+    return MatchResult(
+        lost_report_id=row["lost_report_id"],
+        found_report_id=row["found_report_id"],
+        overall_score=row["overall_score"],
+        text_score=row["text_score"],
+        image_score=row["image_score"],
+        geo_score=row["geo_score"],
+        time_score=row["time_score"],
+        distance_meters=row["distance_meters"],
     )
 
 

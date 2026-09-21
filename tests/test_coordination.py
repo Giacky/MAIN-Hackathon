@@ -86,6 +86,8 @@ class CoordinationTests(unittest.TestCase):
         self.assertEqual(finder.user_id, DEMO_FINDER_USER_ID)
         self.assertEqual(hotel.user_id, DEMO_MIA_USER_ID)
         self.assertFalse(hotel.prefer_anonymous)
+        self.assertTrue(finder.locations)
+        self.assertTrue(finder.image_paths)
         self.assertEqual(display_name_for_sender("found", "lost"), "Finder")
 
     def test_logged_in_owner_gets_lost_role(self) -> None:

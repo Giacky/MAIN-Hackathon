@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from math import atan2, cos, exp, radians, sin, sqrt
 
 from models.schemas import Report
+from utils.locations import report_points
 
 _EARTH_RADIUS_METERS = 6_371_000.0
 _DEFAULT_RADIUS_METERS = 500.0
@@ -34,27 +35,32 @@ def haversine_meters(
 
 
 class GeoMatcher:
-    """Haversine distance plus uncertainty-radius matching."""
+    """Haversine distance plus uncertainty-radius matching across all location pins."""
 
     def compare(self, lost_report: Report, found_report: Report) -> GeoMatchResult:
-        coordinates = (
-            lost_report.latitude,
-            lost_report.longitude,
-            found_report.latitude,
-            found_report.longitude,
-        )
-        lost_lat, lost_lon, found_lat, found_lon = coordinates
-        if lost_lat is None or lost_lon is None or found_lat is None or found_lon is None:
+        lost_points = report_points(lost_report)
+        found_points = report_points(found_report)
+        if not lost_points or not found_points:
             return GeoMatchResult(score=0.0, distance_meters=None)
 
-        distance = haversine_meters(lost_lat, lost_lon, found_lat, found_lon)
-        radius = lost_report.radius_meters or _DEFAULT_RADIUS_METERS
-        if found_report.radius_meters:
-            radius = min(radius, found_report.radius_meters)
-        radius = max(radius, 1.0)
+        best_score = -1.0
+        best_distance: float | None = None
+        for lost_lat, lost_lon, lost_radius in lost_points:
+            for found_lat, found_lon, found_radius in found_points:
+                distance = haversine_meters(lost_lat, lost_lon, found_lat, found_lon)
+                radius = min(
+                    lost_radius or _DEFAULT_RADIUS_METERS,
+                    found_radius or _DEFAULT_RADIUS_METERS,
+                )
+                radius = max(radius, 1.0)
+                score = 1.0 if distance <= radius else exp(-(distance - radius) / radius)
+                score = float(max(0.0, min(1.0, score)))
+                if score > best_score or (
+                    score == best_score
+                    and best_distance is not None
+                    and distance < best_distance
+                ):
+                    best_score = score
+                    best_distance = distance
 
-        if distance <= radius:
-            score = 1.0
-        else:
-            score = exp(-(distance - radius) / radius)
-        return GeoMatchResult(score=float(max(0.0, min(1.0, score))), distance_meters=distance)
+        return GeoMatchResult(score=max(0.0, best_score), distance_meters=best_distance)

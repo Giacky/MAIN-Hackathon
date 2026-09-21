@@ -4,6 +4,8 @@ import sqlite3
 
 import streamlit as st
 
+import page_defs
+from components.item_card import render_item_card
 from database.repository import SQLiteRepository
 from models.schemas import User
 from services.auth import (
@@ -13,7 +15,7 @@ from services.auth import (
     user_session_payload,
     verify_password,
 )
-from services.coordination import DEMO_ACCOUNTS, DEMO_PASSWORD, ensure_demo_handoff_reports
+from services.coordination import DEMO_ACCOUNTS, DEMO_PASSWORD
 
 
 @st.cache_resource
@@ -27,7 +29,6 @@ def current_user() -> User | None:
 
 def render() -> None:
     repository = _repository()
-    ensure_demo_handoff_reports(repository)
     user = current_user()
 
     st.title("Account")
@@ -37,20 +38,25 @@ def render() -> None:
         if my_reports:
             st.subheader("Your reports")
             for report in my_reports:
-                st.write(
-                    f"- {report.report_type.value.title()}: {report.description} "
-                    f"({report.status.value})"
-                )
+                render_item_card(report)
         else:
             st.caption("You have not reported an item yet.")
+        action_column, match_column = st.columns(2)
+        if action_column.button("Report an item", type="primary"):
+            st.switch_page(page_defs.report_page)
+        if match_column.button("See matches"):
+            st.switch_page(page_defs.matches_page)
         if st.button("Log out"):
             st.session_state.pop(SESSION_USER_KEY, None)
             st.rerun()
         return
 
     st.caption("Log in so lost and found items stay attached to you when you arrange pickup.")
-    st.subheader("Dummy testers")
-    st.caption(f"All three use password `{DEMO_PASSWORD}`. Open another browser to act as a second person.")
+    st.subheader("Demo testers")
+    st.caption(
+        f"Password for all three: `{DEMO_PASSWORD}`. "
+        "Use two browsers to act as owner and finder."
+    )
     for account in DEMO_ACCOUNTS:
         with st.container(border=True):
             label_column, button_column = st.columns([3, 1])
@@ -60,7 +66,7 @@ def render() -> None:
             if button_column.button("Log in", key=f"quick-login-{account.user_id}"):
                 seeded = repository.get_user_by_email(account.email)
                 if seeded is None:
-                    st.error("Dummy user is missing. Reload the page.")
+                    st.error("Dummy user is missing. Reload the app from Home.")
                 else:
                     st.session_state[SESSION_USER_KEY] = user_session_payload(seeded)
                     st.rerun()

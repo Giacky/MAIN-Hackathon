@@ -76,6 +76,29 @@ class GeoTimeMatchingTests(unittest.TestCase):
         self.assertEqual(result.score, 0.0)
         self.assertIsNone(result.distance_meters)
 
+    def test_geo_uses_closest_location_pin(self) -> None:
+        from models.schemas import LocationGuess
+
+        lost = Report(
+            report_type=ReportType.LOST,
+            description="wallet",
+            locations=(
+                LocationGuess(latitude=50.8514, longitude=5.6900, radius_meters=200),
+                LocationGuess(latitude=52.3702, longitude=4.8952, radius_meters=200),
+            ),
+        )
+        found = Report(
+            report_type=ReportType.FOUND,
+            description="wallet",
+            latitude=50.8514,
+            longitude=5.6901,
+            radius_meters=200,
+        )
+        result = GeoMatcher().compare(lost, found)
+        self.assertEqual(result.score, 1.0)
+        self.assertIsNotNone(result.distance_meters)
+        self.assertLess(result.distance_meters or 9999, 200)
+
     def test_time_same_moment_is_one(self) -> None:
         moment = datetime(2026, 9, 21, 12, 0, tzinfo=timezone.utc)
         lost = Report(

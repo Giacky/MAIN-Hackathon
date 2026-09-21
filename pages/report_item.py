@@ -1,4 +1,4 @@
-"""Lost/found report form with map pins and one-click sample fill."""
+"""Lost/found report form: map pins, photos, contact, and classification."""
 
 from datetime import date, datetime, time
 from pathlib import Path
@@ -7,6 +7,7 @@ import shutil
 
 import streamlit as st
 
+import page_defs
 from database.repository import SQLiteRepository
 from models.schemas import LocationGuess, Report, ReportType
 from pages.account import current_user
@@ -14,6 +15,8 @@ from samples.presets import PRESETS
 from services.classifier import ReportClassifier
 from utils.config import UPLOAD_DIR, ensure_runtime_directories
 from utils.map_pin import pins, render_location_map, render_pin_details, replace_pins
+
+REPORT_PINS_KEY = "report_location_pins"
 
 
 @st.cache_resource
@@ -46,13 +49,33 @@ def _apply_preset(preset_id: str) -> None:
                 "radius_meters": float(preset["radius_meters"]),
                 "label": preset["label"],
             }
-        ]
+        ],
+        session_key=REPORT_PINS_KEY,
     )
 
 
+def _queue_preset(preset_id: str) -> None:
+    st.session_state["_pending_preset"] = preset_id
+
+
+def _consume_pending_preset() -> None:
+    preset_id = st.session_state.pop("_pending_preset", None)
+    if preset_id:
+        _apply_preset(preset_id)
+
+
 def _ensure_form_defaults() -> None:
-    if "form_description" not in st.session_state:
-        _apply_preset("lost_wallet")
+    if "form_report_type" not in st.session_state:
+        incoming = str(st.session_state.get("report_type", "lost")).lower()
+        st.session_state["form_report_type"] = "Lost" if incoming == "lost" else "Found"
+    if "form_event_date" not in st.session_state:
+        st.session_state["form_event_date"] = date.today()
+    if "form_event_time" not in st.session_state:
+        st.session_state["form_event_time"] = time(12, 0)
+    if "form_prefer_anonymous" not in st.session_state:
+        st.session_state["form_prefer_anonymous"] = (
+            st.session_state.get("form_report_type") == "Found"
+        )
 
 
 def _save_uploads(report_id: str, images: list) -> tuple[str, ...]:
@@ -86,64 +109,22 @@ def _attach_sample_image(report_id: str) -> tuple[str, ...]:
 
 
 def _render_classification(classification) -> None:
-    st.subheader("DeBERTa model output")
+    st.subheader("Suggested labels")
     if classification.is_mock:
-        st.warning(
-            "Mock classification (unset `LOST_FOUND_MOCK_ML` and ensure the model "
-            "is downloaded for real DeBERTa scores)."
-        )
-    else:
-        st.caption(
-            "Zero-shot labels from `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` "
-            "on the description text."
-        )
-
+        st.caption("Placeholder labels (set `LOST_FOUND_MOCK_ML=1`).")
     category_column, urgency_column, sensitive_column = st.columns(3)
-    category_column.metric(
-        "Category",
-        classification.category,
-        (
-            f"{classification.category_confidence:.0%} confidence"
-            if classification.category_confidence is not None
-            else None
-        ),
-    )
-    urgency_column.metric(
-        "Urgency",
-        classification.urgency,
-        (
-            f"{classification.urgency_confidence:.0%} confidence"
-            if classification.urgency_confidence is not None
-            else None
-        ),
-    )
+    category_column.metric("Category", classification.category)
+    urgency_column.metric("Urgency", classification.urgency)
     sensitive_column.metric(
-        "Sensitive",
-        "yes" if classification.sensitive_item else "no",
-        (
-            f"{classification.sensitive_confidence:.0%} confidence"
-            if classification.sensitive_confidence is not None
-            else None
-        ),
+        "Sensitive", "yes" if classification.sensitive_item else "no"
     )
     st.info(classification.recommended_handling)
-
-    if classification.category_ranking:
-        with st.expander("All category scores (ranked)"):
-            st.dataframe(
-                [
-                    {"label": label, "score": round(score, 4)}
-                    for label, score in classification.category_ranking
-                ],
-                hide_index=True,
-                width="stretch",
-            )
 
 
 def _render_debug_presets() -> None:
     st.divider()
-    with st.expander("Demo / debug tools", expanded=False):
-        st.caption("Quick-fill sample reports, then use Submit above.")
+    with st.expander("Demo: fill a sample report", expanded=False):
+        st.caption("Loads a description, photo, and map pin. Then press Submit.")
         columns = st.columns(3)
         for index, preset_id in enumerate(PRESETS.keys()):
             if columns[index % 3].button(
@@ -151,26 +132,21 @@ def _render_debug_presets() -> None:
                 key=f"preset-{preset_id}",
                 width="stretch",
             ):
-                _apply_preset(preset_id)
+                _queue_preset(preset_id)
                 st.rerun()
 
 
 def render() -> None:
-    """Render the input shape expected by services and persistence."""
     st.title("Report an item")
     user = current_user()
     if user is None:
         st.warning("Log in first so this report stays on your account.")
         if st.button("Go to Account", type="primary"):
-            st.session_state["open_account"] = True
-            st.rerun()
+            st.switch_page(page_defs.account_page)
         return
 
-    st.caption(
-        f"Reporting as {user.display_name}. Fill the form and submit. "
-        "Demo presets are at the bottom."
-    )
-
+    st.caption(f"Reporting as {user.display_name}. Pin possible places, then submit.")
+    _consume_pending_preset()
     _ensure_form_defaults()
     if "form_contact_email" not in st.session_state:
         st.session_state["form_contact_email"] = user.email
@@ -178,21 +154,22 @@ def render() -> None:
     map_col, detail_col = st.columns([1.7, 1], gap="large")
     with map_col:
         with st.container(border=True):
-            st.subheader("Possible locations", icon=":material/map:")
-            st.caption(
-                "Click to add pins, or skip the map if you are not sure. "
-                "Each pin can have its own range."
+            st.subheader("Possible locations")
+            st.caption("Click the map to add pins. Skip this if you are not sure.")
+            render_location_map(
+                map_key="report_page",
+                height=420,
+                session_key=REPORT_PINS_KEY,
             )
-            render_location_map(map_key="report_page", height=420)
     with detail_col:
         with st.container(border=True):
-            st.subheader("Pin details", icon=":material/place:")
-            render_pin_details()
+            st.subheader("Pin details")
+            render_pin_details(session_key=REPORT_PINS_KEY)
 
-    location_pins = pins()
-    sample_label = st.session_state.get("sample_preset_label", "sample")
+    location_pins = pins(REPORT_PINS_KEY)
+    sample_label = st.session_state.get("sample_preset_label")
     sample_path = st.session_state.get("sample_image_path")
-    if sample_path and Path(sample_path).is_file():
+    if sample_label and sample_path and Path(sample_path).is_file():
         st.caption(f"Sample photo ready: **{sample_label}** (used if you don't upload).")
 
     report_kind = str(st.session_state.get("form_report_type", "Lost"))
@@ -204,9 +181,13 @@ def render() -> None:
             horizontal=True,
             key="form_report_type",
         )
-        st.text_area("Description", key="form_description")
+        st.text_area(
+            "Description",
+            placeholder="Example: Small black wallet with a blue card inside...",
+            key="form_description",
+        )
         images = st.file_uploader(
-            "Pictures (optional — sample photo is used if empty)",
+            "Pictures (optional)",
             type=["jpg", "jpeg", "png", "webp"],
             accept_multiple_files=True,
         )
@@ -215,22 +196,16 @@ def render() -> None:
         st.markdown("**How can the other person reach you? (optional)**")
         st.text_input("Email", placeholder="you@example.com", key="form_contact_email")
         st.text_input("Phone", placeholder="+31 6 1234 5678", key="form_contact_phone")
-        if report_kind == "Found":
-            st.checkbox(
-                "Stay anonymous",
-                value=True,
-                help=(
-                    "The owner can still arrange a meetup in the app. "
-                    "Your email and phone stay hidden until you turn this off."
-                ),
-                key="form_prefer_anonymous",
-            )
-        else:
-            st.checkbox(
-                "Hide my contact from the finder",
-                value=False,
-                key="form_prefer_anonymous",
-            )
+        anonymous_label = (
+            "Stay anonymous"
+            if report_kind == "Found"
+            else "Hide my contact from the finder"
+        )
+        st.checkbox(
+            anonymous_label,
+            help="The other person can still propose a public meetup in the app.",
+            key="form_prefer_anonymous",
+        )
         submitted = st.form_submit_button("Submit report", type="primary")
 
     if submitted:
@@ -281,56 +256,20 @@ def render() -> None:
         uploaded_paths = _save_uploads(report.id, list(images or []))
         report.image_paths = uploaded_paths or _attach_sample_image(report.id)
         _repository().add_report(report)
-        if locations:
-            st.success(
-                f"Report {report.id[:8]} saved with {len(locations)} location guess"
-                f"{'es' if len(locations) != 1 else ''}."
-            )
-        else:
-            st.success(
-                f"Report {report.id[:8]} saved without a location. You can add pins later."
-            )
+        pin_note = (
+            f" with {len(locations)} location pin{'s' if len(locations) != 1 else ''}"
+            if locations
+            else " without a location"
+        )
+        st.success(f"Saved report {report.id[:8]}{pin_note}.")
         if report.image_paths:
-            st.caption(f"Saved {len(report.image_paths)} image(s) on this Mac.")
+            st.caption(f"Saved {len(report.image_paths)} photo(s).")
         _render_classification(classification)
-        with st.expander("Submitted Report contract"):
-            st.json(
-                {
-                    "id": report.id,
-                    "report_type": report.report_type.value,
-                    "description": report.description,
-                    "category": report.category,
-                    "urgency": report.urgency,
-                    "classification": {
-                        "category": classification.category,
-                        "category_confidence": classification.category_confidence,
-                        "urgency": classification.urgency,
-                        "urgency_confidence": classification.urgency_confidence,
-                        "sensitive_item": classification.sensitive_item,
-                        "sensitive_confidence": classification.sensitive_confidence,
-                        "recommended_handling": classification.recommended_handling,
-                        "is_mock": classification.is_mock,
-                    },
-                    "event_time": report.event_time.isoformat(),
-                    "latitude": report.latitude,
-                    "longitude": report.longitude,
-                    "radius_meters": report.radius_meters,
-                    "locations": [
-                        {
-                            "id": location.id,
-                            "latitude": location.latitude,
-                            "longitude": location.longitude,
-                            "radius_meters": location.radius_meters,
-                        }
-                        for location in report.locations
-                    ],
-                    "image_paths": report.image_paths,
-                    "status": report.status.value,
-                    "contact_email": report.contact_email,
-                    "contact_phone": report.contact_phone,
-                    "prefer_anonymous": report.prefer_anonymous,
-                    "user_id": report.user_id,
-                }
-            )
+        match_column, map_column = st.columns(2)
+        if match_column.button("See matches", type="primary"):
+            st.session_state["demo_lost_id"] = report.id
+            st.switch_page(page_defs.matches_page)
+        if map_column.button("View on map"):
+            st.switch_page(page_defs.map_page)
 
     _render_debug_presets()
