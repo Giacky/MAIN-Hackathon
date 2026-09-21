@@ -1,0 +1,117 @@
+"""Repository boundary and minimal SQLite implementation."""
+
+from pathlib import Path
+from typing import Protocol
+
+from database.db import connection, initialize_database
+from database.models import report_to_row, row_to_report
+from models.schemas import ChatMessage, DropOff, MatchResult, Report, ReportStatus
+from utils.config import DATABASE_PATH
+
+
+class ReportRepository(Protocol):
+    """Minimum persistence interface the UI can depend on."""
+
+    def add_report(self, report: Report) -> Report: ...
+
+    def get_report(self, report_id: str) -> Report | None: ...
+
+    def list_reports(self) -> list[Report]: ...
+
+    def mark_recovered(self, report_id: str) -> bool: ...
+
+
+class SQLiteRepository:
+    """Small SQLite store; intentionally avoids an ORM and migrations."""
+
+    def __init__(self, database_path: Path = DATABASE_PATH) -> None:
+        self.database_path = database_path
+        initialize_database(database_path)
+
+    def add_report(self, report: Report) -> Report:
+        values = report_to_row(report)
+        with connection(self.database_path) as database:
+            database.execute(
+                """
+                INSERT OR REPLACE INTO reports (
+                    id, report_type, description, category, urgency, created_at,
+                    event_time, latitude, longitude, radius_meters, image_paths, status
+                ) VALUES (
+                    :id, :report_type, :description, :category, :urgency, :created_at,
+                    :event_time, :latitude, :longitude, :radius_meters, :image_paths, :status
+                )
+                """,
+                values,
+            )
+        return report
+
+    def get_report(self, report_id: str) -> Report | None:
+        with connection(self.database_path) as database:
+            row = database.execute(
+                "SELECT * FROM reports WHERE id = ?", (report_id,)
+            ).fetchone()
+        return row_to_report(row) if row else None
+
+    def list_reports(self) -> list[Report]:
+        with connection(self.database_path) as database:
+            rows = database.execute(
+                "SELECT * FROM reports ORDER BY created_at DESC"
+            ).fetchall()
+        return [row_to_report(row) for row in rows]
+
+    def mark_recovered(self, report_id: str) -> bool:
+        with connection(self.database_path) as database:
+            cursor = database.execute(
+                "UPDATE reports SET status = ? WHERE id = ?",
+                (ReportStatus.RECOVERED.value, report_id),
+            )
+        return cursor.rowcount > 0
+
+    def save_match(self, match: MatchResult) -> MatchResult:
+        with connection(self.database_path) as database:
+            database.execute(
+                """
+                INSERT OR REPLACE INTO matches VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    match.lost_report_id,
+                    match.found_report_id,
+                    match.overall_score,
+                    match.text_score,
+                    match.image_score,
+                    match.geo_score,
+                    match.time_score,
+                    match.distance_meters,
+                ),
+            )
+        return match
+
+    def add_chat_message(self, message: ChatMessage) -> ChatMessage:
+        with connection(self.database_path) as database:
+            database.execute(
+                "INSERT INTO chat_messages VALUES (?, ?, ?, ?, ?)",
+                (
+                    message.id,
+                    message.match_id,
+                    message.sender,
+                    message.message,
+                    message.timestamp.isoformat(),
+                ),
+            )
+        return message
+
+    def add_drop_off(self, drop_off: DropOff) -> DropOff:
+        with connection(self.database_path) as database:
+            database.execute(
+                "INSERT OR REPLACE INTO drop_offs VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    drop_off.id,
+                    drop_off.match_id,
+                    drop_off.name,
+                    drop_off.latitude,
+                    drop_off.longitude,
+                    drop_off.instructions,
+                    drop_off.timestamp.isoformat(),
+                ),
+            )
+        return drop_off

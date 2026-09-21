@@ -1,4 +1,1 @@
-streamlit
-transformers
-torch
-sentencepiece
+streamlit>=1.36,<2
