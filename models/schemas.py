@@ -42,6 +42,11 @@ class ClassificationResult:
     urgency: str
     sensitive_item: bool
     recommended_handling: str
+    category_confidence: float | None = None
+    urgency_confidence: float | None = None
+    sensitive_confidence: float | None = None
+    category_ranking: tuple[tuple[str, float], ...] = ()
+    is_mock: bool = False
 
 
 @dataclass(slots=True)

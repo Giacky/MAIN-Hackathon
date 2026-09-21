@@ -9,6 +9,14 @@ from services.text_similarity import TextSimilarityService
 from services.time_matching import TimeMatcher
 
 
+def _type_value(report: Report) -> str:
+    """Compare report types by value so Streamlit hot-reload enum identity cannot break matching."""
+    report_type = report.report_type
+    if isinstance(report_type, ReportType):
+        return report_type.value
+    return str(report_type).lower()
+
+
 class MatchingEngine:
     """Combine matching services behind one UI-facing interface."""
 
@@ -27,13 +35,15 @@ class MatchingEngine:
     def rank_matches(
         self, lost_report: Report, found_reports: Iterable[Report]
     ) -> list[MatchResult]:
-        """Produce placeholder rankings while keeping the eventual contract stable."""
-        if lost_report.report_type is not ReportType.LOST:
-            raise ValueError("lost_report must have report_type=LOST")
+        """Rank found reports against one lost report using text, geo, time, and optional image scores."""
+        if _type_value(lost_report) != ReportType.LOST.value:
+            raise ValueError(
+                f"lost_report must have report_type=LOST (got {_type_value(lost_report)!r})"
+            )
 
         results: list[MatchResult] = []
         for found_report in found_reports:
-            if found_report.report_type is not ReportType.FOUND:
+            if _type_value(found_report) != ReportType.FOUND.value:
                 continue
             text_score = self.text_matcher.compare(
                 lost_report.description, found_report.description
