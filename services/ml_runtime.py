@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from functools import lru_cache
+
+logger = logging.getLogger(__name__)
 
 
 CLASSIFIER_MODEL_ID = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
@@ -76,5 +79,4 @@ def warmup_text_models() -> None:
     try:
         image_embedding_model()
     except Exception:
-        # Photos are optional; text matching should still warm cleanly.
-        pass
+        logger.exception("CLIP image model failed to load during warmup")

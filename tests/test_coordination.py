@@ -103,6 +103,23 @@ class CoordinationTests(unittest.TestCase):
         lost.contact_email = "alex@demo.local"
         self.assertEqual(role_for_user(None, lost, found, email="alex@demo.local"), "lost")
 
+    def test_demo_seed_drops_extra_reports(self) -> None:
+        with TemporaryDirectory() as directory:
+            db_path = Path(directory) / "test.sqlite"
+            repository = SQLiteRepository(db_path)
+            repository.add_report(
+                Report(
+                    id="extra-duplicate",
+                    report_type=ReportType.LOST,
+                    description="duplicate wallet",
+                )
+            )
+            ensure_demo_handoff_reports(repository)
+            ids = {report.id for report in repository.list_reports()}
+
+        self.assertNotIn("extra-duplicate", ids)
+        self.assertEqual(len(ids), 5)
+
 
 if __name__ == "__main__":
     unittest.main()

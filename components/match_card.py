@@ -76,7 +76,9 @@ def render_match_card(
 
         st.markdown("**Why this score**")
         _similarity_row("Text", match.text_score, "How similar the descriptions are")
-        if match.image_score is not None:
+        if match.image_error:
+            st.warning(match.image_error)
+        elif match.image_score is not None:
             _similarity_row("Photos", match.image_score, "How similar the pictures are")
         else:
             st.caption("Photos not counted — no picture on one or both reports.")
@@ -95,6 +97,12 @@ def render_match_card(
         reason = gate_reason(match.text_score, match.category_score)
         if reason:
             st.warning(f"Rejected: {reason}.")
+        elif match.image_error:
+            st.caption(
+                f"Overall uses text, location, and time only "
+                f"(text must be at least {TEXT_SCORE_FLOOR:.0%}). "
+                "Photos were skipped because CLIP failed."
+            )
         elif match.image_score is None:
             st.caption(
                 f"Overall uses text, location, and time only "

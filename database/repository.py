@@ -105,6 +105,24 @@ class SQLiteRepository:
             ).fetchall()
         return [row_to_report(row) for row in rows]
 
+    def delete_report(self, report_id: str) -> None:
+        with connection(self.database_path) as database:
+            database.execute("DELETE FROM reports WHERE id = ?", (report_id,))
+            database.execute(
+                """
+                DELETE FROM matches
+                WHERE lost_report_id = ? OR found_report_id = ?
+                """,
+                (report_id, report_id),
+            )
+            like_left = f"{report_id}:%"
+            like_right = f"%:{report_id}"
+            for table in ("meetups", "chat_messages", "drop_offs"):
+                database.execute(
+                    f"DELETE FROM {table} WHERE match_id LIKE ? OR match_id LIKE ?",
+                    (like_left, like_right),
+                )
+
     def mark_recovered(self, report_id: str) -> bool:
         with connection(self.database_path) as database:
             cursor = database.execute(

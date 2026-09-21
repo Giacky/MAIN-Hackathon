@@ -16,6 +16,7 @@ from services.auth import (
     verify_password,
 )
 from services.coordination import DEMO_ACCOUNTS, DEMO_PASSWORD
+from utils.ui import page_nav
 
 
 @st.cache_resource
@@ -40,6 +41,7 @@ def render() -> None:
     repository = _repository()
     user = current_user()
 
+    page_nav()
     st.title("Account")
     if user:
         st.success(f"Signed in as **{user.display_name}** ({user.email}).")

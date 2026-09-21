@@ -105,6 +105,7 @@ class MatchResult:
     image_score: float | None = None
     category_score: float | None = None
     distance_meters: float | None = None
+    image_error: str | None = None
 
 
 @dataclass(slots=True)

@@ -5,6 +5,7 @@ import streamlit as st
 from database.repository import SQLiteRepository
 from models.schemas import ReportStatus, ReportType
 from utils.map_pin import render_reports_map
+from utils.ui import page_nav
 
 
 @st.cache_resource
@@ -13,6 +14,7 @@ def _repository() -> SQLiteRepository:
 
 
 def render() -> None:
+    page_nav()
     st.title("Map")
     st.caption("Blue pins are lost items. Green pins are found items.")
 

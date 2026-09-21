@@ -7,4 +7,7 @@ torchvision>=0.17
 transformers>=4.40
 sentence-transformers>=3.0
 sentencepiece>=0.2
+open-clip-torch>=2.24
+ftfy>=6.1
+regex>=2024.0
 pillow>=10.0

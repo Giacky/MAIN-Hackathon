@@ -9,6 +9,7 @@ import page_defs
 from database.repository import SQLiteRepository
 from models.schemas import LocationGuess, Report, ReportType, as_utc
 from pages.account import current_user
+from utils.ui import page_nav
 from samples.presets import PRESETS
 from services.classifier import ReportClassifier
 from utils.config import UPLOAD_DIR, ensure_runtime_directories
@@ -130,6 +131,7 @@ def _render_debug_presets() -> None:
 
 def render() -> None:
     user = current_user()
+    page_nav()
     if user is None:
         st.title("Report an item")
         st.warning("Log in first so this report stays on your account.")

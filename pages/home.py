@@ -7,7 +7,11 @@ from pages.account import current_user
 from services.coordination import DEMO_PASSWORD
 
 
+from utils.ui import page_nav
+
+
 def render() -> None:
+    page_nav()
     st.title("Smart Lost & Found")
     st.caption("Report an item, see likely matches, then agree on a public pickup.")
 

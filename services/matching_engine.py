@@ -5,17 +5,18 @@ from collections.abc import Iterable
 from models.schemas import MatchResult, Report, ReportType
 from services.geo_matching import GeoMatcher
 from services.image_matching import ImageMatcher
+from services.item_type import resolved_item_type
 from services.text_similarity import TextSimilarityService
 from services.time_matching import TimeMatcher
 
-# Text/image dominate; location/time are light tie-breakers among survivors.
-_WEIGHT_TEXT = 0.60
-_WEIGHT_IMAGE = 0.28
-_WEIGHT_GEO = 0.08
-_WEIGHT_TIME = 0.04
+# Text still leads, but photos and place carry more of the decision.
+_WEIGHT_TEXT = 0.42
+_WEIGHT_IMAGE = 0.33
+_WEIGHT_GEO = 0.16
+_WEIGHT_TIME = 0.09
 
 # Hard gates: cross-type / weak text cannot be rescued by location/time.
-TEXT_SCORE_FLOOR = 0.45
+TEXT_SCORE_FLOOR = 0.50
 
 
 def _type_value(report: Report) -> str:
@@ -26,19 +27,14 @@ def _type_value(report: Report) -> str:
     return str(report_type).lower()
 
 
-def _normalize_category(category: str | None) -> str | None:
-    if not category:
-        return None
-    cleaned = category.strip().lower()
-    if not cleaned or "mock" in cleaned or cleaned == "unclassified":
-        return None
-    return cleaned
-
-
 def category_compatibility(lost_report: Report, found_report: Report) -> float | None:
-    """1.0 same category, 0.0 different, None if either side lacks a usable category."""
-    left = _normalize_category(lost_report.category)
-    right = _normalize_category(found_report.category)
+    """1.0 same type, 0.0 different, None if either side has no usable type.
+
+    Uses the saved category when present, otherwise keywords in the description
+    so "black bag" vs "black wallet" is rejected even if embeddings are close.
+    """
+    left = resolved_item_type(lost_report)
+    right = resolved_item_type(found_report)
     if left is None or right is None:
         return None
     return 1.0 if left == right else 0.0
@@ -125,7 +121,7 @@ class MatchingEngine:
             )
             geo = self.geo_matcher.compare(lost_report, found_report)
             time_score = self.time_matcher.compare(lost_report, found_report)
-            image_score = self.image_matcher.compare(
+            image = self.image_matcher.compare(
                 lost_report.image_paths, found_report.image_paths
             )
             category_score = category_compatibility(lost_report, found_report)
@@ -133,7 +129,7 @@ class MatchingEngine:
                 text_score,
                 geo.score,
                 time_score,
-                image_score,
+                image.score,
                 category_score,
             )
             overall = apply_match_gates(text_score, category_score, blended)
@@ -143,11 +139,12 @@ class MatchingEngine:
                     found_report_id=found_report.id,
                     overall_score=overall,
                     text_score=text_score,
-                    image_score=image_score,
+                    image_score=image.score,
                     category_score=category_score,
                     geo_score=geo.score,
                     time_score=time_score,
                     distance_meters=geo.distance_meters,
+                    image_error=image.error,
                 )
             )
         return sorted(results, key=lambda match: match.overall_score, reverse=True)

@@ -228,6 +228,10 @@ data/uploads/*
 .DS_Store
 .idea/
 
-# Local model caches (future ML work)
-.cache/huggingface/
+# Local model caches (never commit CLIP / HF weights)
+.cache/
 huggingface-cache/
+.huggingface/
+*.safetensors
+*.bin
+!samples/images/**

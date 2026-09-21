@@ -7,14 +7,19 @@ A small Streamlit app for a three-person hackathon. People sign in, report a los
 Python 3.11 or newer is recommended.
 
 ```bash
+git clone https://github.com/Giacky/MAIN-Hackathon.git
+cd MAIN-Hackathon
 python -m venv .venv
 source .venv/bin/activate       # macOS/Linux
 # .venv\Scripts\Activate.ps1    # Windows PowerShell
 pip install -r requirements.txt
+python scripts/setup_clip.py
 streamlit run app.py
 ```
 
-The first real classification or match ranking downloads Hugging Face weights onto this machine (DeBERTa + BGE + CLIP). Set `LOST_FOUND_MOCK_ML=1` to skip models (tests do this automatically). Runtime SQLite files and uploads are ignored by Git.
+`python scripts/setup_clip.py` downloads and caches CLIP (`clip-ViT-B-32`) in the same virtualenv that runs Streamlit. It does not belong in Git. Leave `LOST_FOUND_MOCK_ML` unset so photo matching uses the real model.
+
+The first classification or text match may also download DeBERTa and BGE into the local Hugging Face cache. Set `LOST_FOUND_MOCK_ML=1` to skip models (unit tests do this automatically). Runtime SQLite files and uploads stay on disk and are gitignored; do not delete `data/` if you want to keep existing reports and photos.
 
 ### Demo server (MacBook + phone)
 
@@ -22,6 +27,7 @@ The first real classification or match ranking downloads Hugging Face weights on
 
 ```bash
 source .venv/bin/activate
+python scripts/setup_clip.py
 streamlit run app.py
 ```
 
@@ -97,7 +103,10 @@ MatchingEngine.rank_matches(lost_report: Report, found_reports: Iterable[Report]
 ```bash
 streamlit run app.py
 python -m unittest discover -s tests
+LOST_FOUND_MOCK_ML=0 python scripts/setup_clip.py
 ```
+
+Unit tests force `LOST_FOUND_MOCK_ML=1` and do not prove CLIP works. After `setup_clip.py` prints `CLIP is ready`, photo matching is using the real model.
 
 ## Deployment
 

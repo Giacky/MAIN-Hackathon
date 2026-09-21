@@ -163,24 +163,18 @@ PRESETS: dict[str, dict] = {
         "image": SAMPLES_DIR / "found_black_glasses.png",
     },
     "lost_earbuds": {
-        "label": "Lost white earbuds case",
+        "label": "Lost AirPods",
         "report_type": "lost",
-        "description": (
-            "Scratched white wireless-earbuds case. Probably dropped it getting "
-            "on the bus at Boschstraat."
-        ),
+        "description": "White AirPods case. Lost at the bus stop.",
         "latitude": 50.8506,
         "longitude": 5.6907,
         "radius_meters": 200,
         "image": SAMPLES_DIR / "lost_white_earbuds.png",
     },
     "found_earbuds": {
-        "label": "Found white earbuds case",
+        "label": "Found AirPods",
         "report_type": "found",
-        "description": (
-            "Dirty white earbuds charging case on the footpath by the campus "
-            "bus stop."
-        ),
+        "description": "White AirPods case found next to the bus stop.",
         "latitude": 50.8507,
         "longitude": 5.6908,
         "radius_meters": 200,

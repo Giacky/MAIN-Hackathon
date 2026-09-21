@@ -18,16 +18,6 @@ from utils.images import save_prepared_image
 DEMO_LOST_ID = "lost-demo-123"
 DEMO_FOUND_LIBRARY_ID = "found-demo-456"
 DEMO_FOUND_HOTEL_ID = "found-demo-789"
-DEMO_LOST_KEYS_ID = "lost-demo-keys"
-DEMO_FOUND_KEYS_ID = "found-demo-keys"
-DEMO_FOUND_PHONE_ID = "found-demo-phone"
-DEMO_LOST_BACKPACK_ID = "lost-demo-backpack"
-DEMO_FOUND_BACKPACK_ID = "found-demo-backpack"
-DEMO_LOST_BOTTLE_ID = "lost-demo-bottle"
-DEMO_FOUND_BOTTLE_ID = "found-demo-bottle"
-DEMO_FOUND_BOTTLE_FAR_ID = "found-demo-bottle-far"
-DEMO_LOST_GLASSES_ID = "lost-demo-glasses"
-DEMO_FOUND_GLASSES_ID = "found-demo-glasses"
 DEMO_LOST_EARBUDS_ID = "lost-demo-earbuds"
 DEMO_FOUND_EARBUDS_ID = "found-demo-earbuds"
 DEMO_PASSWORD = "demo"
@@ -74,18 +64,16 @@ PRESET_CATEGORIES = {
     "lost_wallet": "wallet",
     "found_wallet": "wallet",
     "found_brown": "wallet",
-    "lost_keys": "keys",
-    "found_keys": "keys",
-    "found_phone": "phone",
-    "lost_backpack": "bag",
-    "found_backpack": "bag",
-    "lost_bottle": "bottle",
-    "found_bottle": "bottle",
-    "found_bottle_far": "bottle",
-    "lost_glasses": "glasses",
-    "found_glasses": "glasses",
     "lost_earbuds": "electronics",
     "found_earbuds": "electronics",
+}
+
+DEMO_REPORT_IDS = {
+    DEMO_LOST_ID,
+    DEMO_FOUND_LIBRARY_ID,
+    DEMO_FOUND_HOTEL_ID,
+    DEMO_LOST_EARBUDS_ID,
+    DEMO_FOUND_EARBUDS_ID,
 }
 
 
@@ -223,11 +211,7 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             contact_email=alex.email,
             contact_phone=alex_phone,
             prefer_anonymous=False,
-            description=(
-                "Small black leather wallet. I had my UM student card and a blue "
-                "ING debit card in it. Last saw it on a desk in Inner City Library "
-                "around closing time."
-            ),
+            description="Black leather wallet. Lost in the library.",
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_LIBRARY_ID,
@@ -237,11 +221,8 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             contact_email=sam.email,
             contact_phone=sam_phone,
             prefer_anonymous=True,
-            description=(
-                "Black leather wallet left on a table near the Inner City Library "
-                "entrance. Cards still inside, looks like a student wallet."
-            ),
-            holding_note="Handed in at the Inner City Library information desk. Ask at the counter.",
+            description="Black leather wallet found at the library entrance.",
+            holding_note="At the library desk.",
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_HOTEL_ID,
@@ -251,147 +232,8 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             contact_email=mia.email,
             contact_phone=mia_phone,
             prefer_anonymous=False,
-            description=(
-                "Brown bifold card holder a guest left on the hotel reception desk. "
-                "Cash inside, no bank cards."
-            ),
-            holding_note="In the hotel lost-and-found box behind reception. Ask for Mia.",
-        ),
-        _report_from_preset(
-            report_id=DEMO_LOST_KEYS_ID,
-            preset_id="lost_keys",
-            user_id=alex.id,
-            hours_offset=0,
-            contact_email=alex.email,
-            contact_phone=alex_phone,
-            prefer_anonymous=False,
-            description=(
-                "Three silver house keys on a blue plastic fob. I think they fell "
-                "off my bag outside the Tapijn cafeteria."
-            ),
-        ),
-        _report_from_preset(
-            report_id=DEMO_FOUND_KEYS_ID,
-            preset_id="found_keys",
-            user_id=sam.id,
-            hours_offset=1,
-            contact_email=sam.email,
-            contact_phone=sam_phone,
-            prefer_anonymous=True,
-            description=(
-                "Bunch of metal keys with a blue tag, sitting on a bench by the "
-                "Tapijn cafeteria."
-            ),
-            holding_note="Left with cafeteria staff next to the till at Tapijn.",
-        ),
-        _report_from_preset(
-            report_id=DEMO_FOUND_PHONE_ID,
-            preset_id="found_phone",
-            user_id=mia.id,
-            hours_offset=3,
-            contact_email=mia.email,
-            contact_phone=mia_phone,
-            prefer_anonymous=False,
-            description=(
-                "Blue smartphone in a cracked case, left on a café table while I "
-                "was in Amsterdam for the weekend."
-            ),
-            holding_note="I left it with the barista and told them someone might come by.",
-        ),
-        _report_from_preset(
-            report_id=DEMO_LOST_BACKPACK_ID,
-            preset_id="lost_backpack",
-            user_id=alex.id,
-            hours_offset=-8,
-            contact_email=alex.email,
-            contact_phone=alex_phone,
-            prefer_anonymous=False,
-            description=(
-                "Old red student backpack with a laptop sleeve. I put it down at "
-                "the Boschstraat bus stop and it was gone when the 1A came."
-            ),
-        ),
-        _report_from_preset(
-            report_id=DEMO_FOUND_BACKPACK_ID,
-            preset_id="found_backpack",
-            user_id=sam.id,
-            hours_offset=-7,
-            contact_email=sam.email,
-            contact_phone=sam_phone,
-            prefer_anonymous=True,
-            description=(
-                "Worn red backpack with black zips, left on a bench at the bus stop "
-                "near campus."
-            ),
-            holding_note="Dropped it at the bus-station service desk.",
-        ),
-        _report_from_preset(
-            report_id=DEMO_LOST_BOTTLE_ID,
-            preset_id="lost_bottle",
-            user_id=alex.id,
-            hours_offset=-6,
-            contact_email=alex.email,
-            contact_phone=alex_phone,
-            prefer_anonymous=False,
-            description=(
-                "Dark green metal bottle covered in festival stickers. Last had it "
-                "locked to my bike at the Vrijthof racks."
-            ),
-        ),
-        _report_from_preset(
-            report_id=DEMO_FOUND_BOTTLE_ID,
-            preset_id="found_bottle",
-            user_id=sam.id,
-            hours_offset=-5,
-            contact_email=sam.email,
-            contact_phone=sam_phone,
-            prefer_anonymous=True,
-            description=(
-                "Green reusable metal bottle with travel stickers, next to the "
-                "Vrijthof bike parking."
-            ),
-            holding_note="Left it at the bicycle-rental counter on Vrijthof.",
-        ),
-        _report_from_preset(
-            report_id=DEMO_FOUND_BOTTLE_FAR_ID,
-            preset_id="found_bottle_far",
-            user_id=mia.id,
-            hours_offset=42,
-            contact_email=mia.email,
-            contact_phone=mia_phone,
-            prefer_anonymous=False,
-            description=(
-                "Plain dark green insulated bottle with a black cap, on a path in "
-                "Vondelpark while I was visiting a friend in Amsterdam."
-            ),
-            holding_note="Gave it to the park information kiosk.",
-        ),
-        _report_from_preset(
-            report_id=DEMO_LOST_GLASSES_ID,
-            preset_id="lost_glasses",
-            user_id=alex.id,
-            hours_offset=-4,
-            contact_email=alex.email,
-            contact_phone=alex_phone,
-            prefer_anonymous=False,
-            description=(
-                "Black rectangular glasses in a blue hard case. I took them off in "
-                "a study room at Inner City Library and forgot them under the desk."
-            ),
-        ),
-        _report_from_preset(
-            report_id=DEMO_FOUND_GLASSES_ID,
-            preset_id="found_glasses",
-            user_id=sam.id,
-            hours_offset=-3,
-            contact_email=sam.email,
-            contact_phone=sam_phone,
-            prefer_anonymous=True,
-            description=(
-                "Black rectangular glasses and a dark blue case under a desk in "
-                "Inner City Library."
-            ),
-            holding_note="At the Inner City Library information desk.",
+            description="Brown card holder left at hotel reception.",
+            holding_note="At hotel reception.",
         ),
         _report_from_preset(
             report_id=DEMO_LOST_EARBUDS_ID,
@@ -401,10 +243,7 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             contact_email=alex.email,
             contact_phone=alex_phone,
             prefer_anonymous=False,
-            description=(
-                "Scratched white wireless-earbuds case. Probably dropped it getting "
-                "on the bus at Boschstraat."
-            ),
+            description="White AirPods case. Lost at the bus stop.",
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_EARBUDS_ID,
@@ -414,16 +253,25 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             contact_email=mia.email,
             contact_phone=mia_phone,
             prefer_anonymous=False,
-            description=(
-                "Dirty white earbuds charging case on the footpath by the campus "
-                "bus stop. Picked it up after my evening shift."
-            ),
-            holding_note="I still have it. Happy to meet at the Boschstraat bus stop.",
+            description="White AirPods case found next to the bus stop.",
+            holding_note="I still have them.",
         ),
     )
     for report in specs:
         _ensure_report(repository, report)
+    _prune_extra_reports(repository)
     return repository
+
+
+def _prune_extra_reports(repository: SQLiteRepository) -> None:
+    """Drop leftover seed rows and duplicate uploads so the demo stays small."""
+    for report in repository.list_reports():
+        if report.id not in DEMO_REPORT_IDS:
+            repository.delete_report(report.id)
+    if UPLOAD_DIR.exists():
+        for folder in UPLOAD_DIR.iterdir():
+            if folder.is_dir() and folder.name not in DEMO_REPORT_IDS:
+                shutil.rmtree(folder, ignore_errors=True)
 
 
 def seed_demo_reports() -> tuple[list[Report], list[Report]]:

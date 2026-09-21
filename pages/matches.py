@@ -10,6 +10,7 @@ from pages.account import current_user
 from services.demo_seed import seed_demo_reports
 from services.matching_engine import MatchingEngine
 from utils.config import DATABASE_PATH
+from utils.ui import page_nav
 
 
 def _repository() -> SQLiteRepository:
@@ -166,6 +167,7 @@ def _render_found_matches(lost_reports: list[Report], my_found: list[Report], us
 
 
 def render() -> None:
+    page_nav()
     st.title("Matches")
     st.caption("Pick one of your items, then see likely matches from other people.")
 
