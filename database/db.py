@@ -24,12 +24,29 @@ def connection(database_path: Path = DATABASE_PATH) -> Iterator[sqlite3.Connecti
         database.close()
 
 
+def _ensure_columns(
+    database: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
+    existing = {row[1] for row in database.execute(f"PRAGMA table_info({table})")}
+    for name, definition in columns.items():
+        if name not in existing:
+            database.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
 def initialize_database(database_path: Path = DATABASE_PATH) -> None:
     """Create the small hackathon schema if it does not already exist."""
     ensure_runtime_directories()
     with connection(database_path) as database:
         database.executescript(
             """
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS reports (
                 id TEXT PRIMARY KEY,
                 report_type TEXT NOT NULL,
@@ -75,12 +92,26 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 instructions TEXT NOT NULL,
                 timestamp TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS meetups (
+                match_id TEXT PRIMARY KEY,
+                id TEXT NOT NULL,
+                proposed_by TEXT NOT NULL,
+                location_name TEXT NOT NULL,
+                meeting_time TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
-        columns = {
-            row[1] for row in database.execute("PRAGMA table_info(reports)").fetchall()
-        }
-        if "locations" not in columns:
-            database.execute(
-                "ALTER TABLE reports ADD COLUMN locations TEXT NOT NULL DEFAULT '[]'"
-            )
+        _ensure_columns(
+            database,
+            "reports",
+            {
+                "locations": "TEXT NOT NULL DEFAULT '[]'",
+                "contact_email": "TEXT",
+                "contact_phone": "TEXT",
+                "prefer_anonymous": "INTEGER NOT NULL DEFAULT 0",
+                "user_id": "TEXT",
+            },
+        )

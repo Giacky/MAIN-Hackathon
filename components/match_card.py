@@ -132,4 +132,8 @@ def render_match_card(
                 f"(text 60%, image 28%, location 8%, time 4%) after gates "
                 f"(same category if labeled; text ≥ {TEXT_SCORE_FLOOR:.0%})."
             )
-        st.button("View recovery options", key=f"recover-{match.found_report_id}")
+        if st.button("Arrange pickup", key=f"recover-{match.found_report_id}"):
+            st.session_state["recovery_lost_id"] = match.lost_report_id
+            st.session_state["recovery_found_id"] = match.found_report_id
+            st.session_state["open_recovery"] = True
+            st.rerun()

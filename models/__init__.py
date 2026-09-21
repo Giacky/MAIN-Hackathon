@@ -6,9 +6,13 @@ from .schemas import (
     DropOff,
     LocationGuess,
     MatchResult,
+    Meetup,
+    MeetupStatus,
     Report,
     ReportStatus,
     ReportType,
+    User,
+    match_thread_id,
 )
 
 __all__ = [
@@ -17,7 +21,11 @@ __all__ = [
     "DropOff",
     "LocationGuess",
     "MatchResult",
+    "Meetup",
+    "MeetupStatus",
     "Report",
     "ReportStatus",
     "ReportType",
+    "User",
+    "match_thread_id",
 ]

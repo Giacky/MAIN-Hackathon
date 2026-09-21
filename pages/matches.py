@@ -5,6 +5,7 @@ import streamlit as st
 from components.match_card import render_lost_context, render_match_card
 from database.repository import SQLiteRepository
 from models.schemas import Report, ReportType
+from pages.account import current_user
 from services.demo_seed import seed_demo_reports
 from services.matching_engine import MatchingEngine
 from utils.config import DATABASE_PATH
@@ -73,6 +74,14 @@ def render() -> None:
     st.title("Potential matches")
     st.caption("Ranked by text, location, time, and images when both sides have photos.")
 
+    user = current_user()
+    if user:
+        st.caption(
+            f"Signed in as {user.display_name}. Arrange pickup from a match card."
+        )
+    else:
+        st.caption("Log in to attach reports to your account before arranging pickup.")
+
     # One-time cache bust after the enum/hot-reload matching bug.
     if not st.session_state.get("_matches_cache_busted"):
         st.cache_resource.clear()
@@ -97,6 +106,11 @@ def render() -> None:
     if demo_lost_id:
         for index, report in enumerate(lost_reports):
             if report.id == demo_lost_id:
+                default_index = index
+                break
+    elif user:
+        for index, report in enumerate(lost_reports):
+            if report.user_id == user.id:
                 default_index = index
                 break
 

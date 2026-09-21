@@ -9,6 +9,7 @@ import streamlit as st
 
 from database.repository import SQLiteRepository
 from models.schemas import LocationGuess, Report, ReportType
+from pages.account import current_user
 from samples.presets import PRESETS
 from services.classifier import ReportClassifier
 from utils.config import UPLOAD_DIR, ensure_runtime_directories
@@ -157,9 +158,22 @@ def _render_debug_presets() -> None:
 def render() -> None:
     """Render the input shape expected by services and persistence."""
     st.title("Report an item")
-    st.caption("Fill the form and submit. Demo presets are at the bottom.")
+    user = current_user()
+    if user is None:
+        st.warning("Log in first so this report stays on your account.")
+        if st.button("Go to Account", type="primary"):
+            st.session_state["open_account"] = True
+            st.rerun()
+        return
+
+    st.caption(
+        f"Reporting as {user.display_name}. Fill the form and submit. "
+        "Demo presets are at the bottom."
+    )
 
     _ensure_form_defaults()
+    if "form_contact_email" not in st.session_state:
+        st.session_state["form_contact_email"] = user.email
 
     map_col, detail_col = st.columns([1.7, 1], gap="large")
     with map_col:
@@ -181,6 +195,8 @@ def render() -> None:
     if sample_path and Path(sample_path).is_file():
         st.caption(f"Sample photo ready: **{sample_label}** (used if you don't upload).")
 
+    report_kind = str(st.session_state.get("form_report_type", "Lost"))
+
     with st.form("report-item-form", clear_on_submit=False):
         st.radio(
             "What happened?",
@@ -196,6 +212,25 @@ def render() -> None:
         )
         st.date_input("Approximate date", key="form_event_date")
         st.time_input("Approximate time", key="form_event_time")
+        st.markdown("**How can the other person reach you? (optional)**")
+        st.text_input("Email", placeholder="you@example.com", key="form_contact_email")
+        st.text_input("Phone", placeholder="+31 6 1234 5678", key="form_contact_phone")
+        if report_kind == "Found":
+            st.checkbox(
+                "Stay anonymous",
+                value=True,
+                help=(
+                    "The owner can still arrange a meetup in the app. "
+                    "Your email and phone stay hidden until you turn this off."
+                ),
+                key="form_prefer_anonymous",
+            )
+        else:
+            st.checkbox(
+                "Hide my contact from the finder",
+                value=False,
+                key="form_prefer_anonymous",
+            )
         submitted = st.form_submit_button("Submit report", type="primary")
 
     if submitted:
@@ -223,6 +258,8 @@ def render() -> None:
             for pin in location_pins
         )
         first = locations[0] if locations else None
+        contact_email = str(st.session_state.get("form_contact_email", "")).strip()
+        contact_phone = str(st.session_state.get("form_contact_phone", "")).strip()
         report = Report(
             report_type=ReportType(report_type_value.lower()),
             description=description,
@@ -236,6 +273,10 @@ def render() -> None:
             longitude=first.longitude if first else None,
             radius_meters=first.radius_meters if first else None,
             locations=locations,
+            contact_email=contact_email or None,
+            contact_phone=contact_phone or None,
+            prefer_anonymous=bool(st.session_state.get("form_prefer_anonymous", False)),
+            user_id=user.id,
         )
         uploaded_paths = _save_uploads(report.id, list(images or []))
         report.image_paths = uploaded_paths or _attach_sample_image(report.id)
@@ -285,6 +326,10 @@ def render() -> None:
                     ],
                     "image_paths": report.image_paths,
                     "status": report.status.value,
+                    "contact_email": report.contact_email,
+                    "contact_phone": report.contact_phone,
+                    "prefer_anonymous": report.prefer_anonymous,
+                    "user_id": report.user_id,
                 }
             )
 

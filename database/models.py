@@ -6,12 +6,24 @@ from datetime import datetime
 from uuid import uuid4
 from typing import Any
 
-from models.schemas import LocationGuess, Report, ReportStatus, ReportType
+from models.schemas import (
+    ChatMessage,
+    LocationGuess,
+    Meetup,
+    MeetupStatus,
+    Report,
+    ReportStatus,
+    ReportType,
+    User,
+)
+
+
+def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
+    return row[key] if key in row.keys() else default
 
 
 def _locations_from_row(row: sqlite3.Row) -> tuple[LocationGuess, ...]:
-    keys = row.keys()
-    raw = row["locations"] if "locations" in keys and row["locations"] else "[]"
+    raw = _row_value(row, "locations") or "[]"
     payload = json.loads(raw)
     return tuple(
         LocationGuess(
@@ -49,6 +61,10 @@ def report_to_row(report: Report) -> dict[str, Any]:
             ]
         ),
         "status": report.status.value,
+        "contact_email": report.contact_email,
+        "contact_phone": report.contact_phone,
+        "prefer_anonymous": int(report.prefer_anonymous),
+        "user_id": report.user_id,
     }
 
 
@@ -69,4 +85,62 @@ def row_to_report(row: sqlite3.Row) -> Report:
         locations=_locations_from_row(row),
         image_paths=tuple(json.loads(row["image_paths"])),
         status=ReportStatus(row["status"]),
+        contact_email=_row_value(row, "contact_email"),
+        contact_phone=_row_value(row, "contact_phone"),
+        prefer_anonymous=bool(_row_value(row, "prefer_anonymous", 0)),
+        user_id=_row_value(row, "user_id"),
+    )
+
+
+def row_to_chat_message(row: sqlite3.Row) -> ChatMessage:
+    return ChatMessage(
+        id=row["id"],
+        match_id=row["match_id"],
+        sender=row["sender"],
+        message=row["message"],
+        timestamp=datetime.fromisoformat(row["timestamp"]),
+    )
+
+
+def meetup_to_row(meetup: Meetup) -> dict[str, Any]:
+    return {
+        "match_id": meetup.match_id,
+        "id": meetup.id,
+        "proposed_by": meetup.proposed_by,
+        "location_name": meetup.location_name,
+        "meeting_time": meetup.meeting_time.isoformat(),
+        "status": meetup.status.value,
+        "created_at": meetup.created_at.isoformat(),
+    }
+
+
+def row_to_meetup(row: sqlite3.Row) -> Meetup:
+    return Meetup(
+        match_id=row["match_id"],
+        id=row["id"],
+        proposed_by=row["proposed_by"],
+        location_name=row["location_name"],
+        meeting_time=datetime.fromisoformat(row["meeting_time"]),
+        status=MeetupStatus(row["status"]),
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def user_to_row(user: User) -> dict[str, Any]:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "display_name": user.display_name,
+        "password_hash": user.password_hash,
+        "created_at": user.created_at.isoformat(),
+    }
+
+
+def row_to_user(row: sqlite3.Row) -> User:
+    return User(
+        id=row["id"],
+        email=row["email"],
+        display_name=row["display_name"],
+        password_hash=row["password_hash"],
+        created_at=datetime.fromisoformat(row["created_at"]),
     )
