@@ -4,8 +4,22 @@ from pathlib import Path
 from typing import Protocol
 
 from database.db import connection, initialize_database
-from database.models import report_to_row, row_to_report
-from models.schemas import ChatMessage, DropOff, MatchResult, Report, ReportStatus
+from database.models import (
+    meetup_to_row,
+    report_to_row,
+    row_to_chat_message,
+    row_to_meetup,
+    row_to_report,
+)
+from models.schemas import (
+    ChatMessage,
+    DropOff,
+    MatchResult,
+    Meetup,
+    MeetupStatus,
+    Report,
+    ReportStatus,
+)
 from utils.config import DATABASE_PATH
 
 
@@ -35,10 +49,12 @@ class SQLiteRepository:
                 """
                 INSERT OR REPLACE INTO reports (
                     id, report_type, description, category, urgency, created_at,
-                    event_time, latitude, longitude, radius_meters, image_paths, status
+                    event_time, latitude, longitude, radius_meters, image_paths, status,
+                    contact_email, contact_phone, prefer_anonymous
                 ) VALUES (
                     :id, :report_type, :description, :category, :urgency, :created_at,
-                    :event_time, :latitude, :longitude, :radius_meters, :image_paths, :status
+                    :event_time, :latitude, :longitude, :radius_meters, :image_paths, :status,
+                    :contact_email, :contact_phone, :prefer_anonymous
                 )
                 """,
                 values,
@@ -100,6 +116,18 @@ class SQLiteRepository:
             )
         return message
 
+    def list_chat_messages(self, match_id: str) -> list[ChatMessage]:
+        with connection(self.database_path) as database:
+            rows = database.execute(
+                """
+                SELECT * FROM chat_messages
+                WHERE match_id = ?
+                ORDER BY timestamp ASC
+                """,
+                (match_id,),
+            ).fetchall()
+        return [row_to_chat_message(row) for row in rows]
+
     def add_drop_off(self, drop_off: DropOff) -> DropOff:
         with connection(self.database_path) as database:
             database.execute(
@@ -115,3 +143,33 @@ class SQLiteRepository:
                 ),
             )
         return drop_off
+
+    def get_meetup(self, match_id: str) -> Meetup | None:
+        with connection(self.database_path) as database:
+            row = database.execute(
+                "SELECT * FROM meetups WHERE match_id = ?", (match_id,)
+            ).fetchone()
+        return row_to_meetup(row) if row else None
+
+    def save_meetup(self, meetup: Meetup) -> Meetup:
+        values = meetup_to_row(meetup)
+        with connection(self.database_path) as database:
+            database.execute(
+                """
+                INSERT OR REPLACE INTO meetups (
+                    match_id, id, proposed_by, location_name, meeting_time, status, created_at
+                ) VALUES (
+                    :match_id, :id, :proposed_by, :location_name, :meeting_time, :status, :created_at
+                )
+                """,
+                values,
+            )
+        return meetup
+
+    def update_meetup_status(self, match_id: str, status: MeetupStatus) -> bool:
+        with connection(self.database_path) as database:
+            cursor = database.execute(
+                "UPDATE meetups SET status = ? WHERE match_id = ?",
+                (status.value, match_id),
+            )
+        return cursor.rowcount > 0

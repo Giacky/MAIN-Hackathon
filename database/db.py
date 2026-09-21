@@ -74,5 +74,33 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 instructions TEXT NOT NULL,
                 timestamp TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS meetups (
+                match_id TEXT PRIMARY KEY,
+                id TEXT NOT NULL,
+                proposed_by TEXT NOT NULL,
+                location_name TEXT NOT NULL,
+                meeting_time TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
+        _ensure_columns(
+            database,
+            "reports",
+            {
+                "contact_email": "TEXT",
+                "contact_phone": "TEXT",
+                "prefer_anonymous": "INTEGER NOT NULL DEFAULT 0",
+            },
+        )
+
+
+def _ensure_columns(
+    database: sqlite3.Connection, table: str, columns: dict[str, str]
+) -> None:
+    existing = {row[1] for row in database.execute(f"PRAGMA table_info({table})")}
+    for name, definition in columns.items():
+        if name not in existing:
+            database.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")

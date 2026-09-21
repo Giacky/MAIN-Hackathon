@@ -25,4 +25,8 @@ def render_match_card(match: MatchResult, found_report: Report | None = None) ->
         )
         if match.distance_meters is not None:
             st.caption(f"Approximate distance: {match.distance_meters:.0f} m")
-        st.button("View recovery options", key=f"recover-{match.found_report_id}")
+        if st.button("Arrange pickup", key=f"recover-{match.found_report_id}"):
+            st.session_state["recovery_lost_id"] = match.lost_report_id
+            st.session_state["recovery_found_id"] = match.found_report_id
+            st.session_state["open_recovery"] = True
+            st.rerun()

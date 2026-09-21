@@ -48,6 +48,21 @@ def render() -> None:
         radius_meters = radius_column.number_input(
             "Search radius (m)", min_value=10, max_value=100_000, value=500, step=50
         )
+
+        st.markdown("**How can the other person reach you? (optional)**")
+        contact_email = st.text_input("Email", placeholder="you@example.com")
+        contact_phone = st.text_input("Phone", placeholder="+31 6 1234 5678")
+        if report_type_value == "Found":
+            prefer_anonymous = st.checkbox(
+                "Stay anonymous",
+                value=True,
+                help="The owner can still arrange a meetup in the app. Your email and phone stay hidden until you turn this off.",
+            )
+        else:
+            prefer_anonymous = st.checkbox(
+                "Hide my contact from the finder",
+                value=False,
+            )
         submitted = st.form_submit_button("Submit report", type="primary")
 
     if submitted:
@@ -64,6 +79,9 @@ def render() -> None:
             radius_meters=float(radius_meters),
             # Upload persistence is intentionally left to the integration workstream.
             image_paths=(),
+            contact_email=contact_email.strip() or None,
+            contact_phone=contact_phone.strip() or None,
+            prefer_anonymous=prefer_anonymous,
         )
         _repository().add_report(report)
         st.success(f"Report {report.id[:8]} saved to the local skeleton database.")
@@ -84,5 +102,8 @@ def render() -> None:
                     "radius_meters": report.radius_meters,
                     "image_paths": report.image_paths,
                     "status": report.status.value,
+                    "contact_email": report.contact_email,
+                    "contact_phone": report.contact_phone,
+                    "prefer_anonymous": report.prefer_anonymous,
                 }
             )

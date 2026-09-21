@@ -20,6 +20,17 @@ class ReportStatus(str, Enum):
     RECOVERED = "recovered"
 
 
+class MeetupStatus(str, Enum):
+    PROPOSED = "proposed"
+    ACCEPTED = "accepted"
+    DECLINED = "declined"
+
+
+def match_thread_id(lost_report_id: str, found_report_id: str) -> str:
+    """Stable coordination id for one lost/found pair."""
+    return f"{lost_report_id}:{found_report_id}"
+
+
 @dataclass(slots=True)
 class Report:
     report_type: ReportType
@@ -34,6 +45,9 @@ class Report:
     radius_meters: float | None = None
     image_paths: tuple[str, ...] = ()
     status: ReportStatus = ReportStatus.OPEN
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    prefer_anonymous: bool = False
 
 
 @dataclass(slots=True)
@@ -74,3 +88,14 @@ class DropOff:
     instructions: str
     id: str = field(default_factory=lambda: str(uuid4()))
     timestamp: datetime = field(default_factory=utc_now)
+
+
+@dataclass(slots=True)
+class Meetup:
+    match_id: str
+    proposed_by: str
+    location_name: str
+    meeting_time: datetime
+    status: MeetupStatus = MeetupStatus.PROPOSED
+    id: str = field(default_factory=lambda: str(uuid4()))
+    created_at: datetime = field(default_factory=utc_now)
