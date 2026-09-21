@@ -13,7 +13,7 @@ from models.schemas import LocationGuess, Report, ReportType, User
 from samples.presets import PRESETS
 from services.auth import hash_password
 from utils.config import DATABASE_PATH, UPLOAD_DIR, ensure_runtime_directories
-from utils.images import save_prepared_image
+from utils.images import save_upload_image
 
 DEMO_LOST_ID = "lost-demo-123"
 DEMO_FOUND_LIBRARY_ID = "found-demo-456"
@@ -92,7 +92,7 @@ def _copy_image(report_id: str, source: Path) -> tuple[str, ...]:
         return ()
     folder = UPLOAD_DIR / report_id
     folder.mkdir(parents=True, exist_ok=True)
-    destination = save_prepared_image(source, folder / "0.jpg")
+    destination = save_upload_image(source, folder / "0.jpg")
     return (str(destination),)
 
 

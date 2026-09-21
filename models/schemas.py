@@ -106,6 +106,11 @@ class MatchResult:
     category_score: float | None = None
     distance_meters: float | None = None
     image_error: str | None = None
+    # Optional DINOv2 + LightGlue evidence (not persisted to SQLite).
+    visual_shortlisted: bool | None = None
+    visual_dino_score: float | None = None
+    visual_inliers: int | None = None
+    visual_inlier_ratio: float | None = None
 
 
 @dataclass(slots=True)
