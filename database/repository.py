@@ -55,12 +55,12 @@ class SQLiteRepository:
                     id, report_type, description, category, urgency, created_at,
                     event_time, latitude, longitude, radius_meters, image_paths,
                     locations, status, contact_email, contact_phone, prefer_anonymous,
-                    user_id
+                    user_id, holding_note
                 ) VALUES (
                     :id, :report_type, :description, :category, :urgency, :created_at,
                     :event_time, :latitude, :longitude, :radius_meters, :image_paths,
                     :locations, :status, :contact_email, :contact_phone,
-                    :prefer_anonymous, :user_id
+                    :prefer_anonymous, :user_id, :holding_note
                 )
                 """,
                 values,

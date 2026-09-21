@@ -1,7 +1,8 @@
-"""Rank lost and found reports, then open pickup for a pair."""
+"""Rank your lost or found reports against other people's items."""
 
 import streamlit as st
 
+from components.item_card import render_item_tile
 from components.match_card import render_lost_context, render_match_card
 from database.repository import SQLiteRepository
 from models.schemas import Report, ReportType
@@ -26,17 +27,6 @@ def _report_type_value(report: Report) -> str:
     return str(report_type).lower()
 
 
-def _label(report: Report) -> str:
-    preview = report.description.strip().replace("\n", " ")
-    if len(preview) > 72:
-        preview = preview[:69] + "..."
-    owner = "you" if st.session_state.get("_matches_user_id") == report.user_id else ""
-    prefix = f"[{_report_type_value(report)}]"
-    if owner:
-        prefix += " yours"
-    return f"{prefix} {preview}"
-
-
 def _split_open_reports() -> tuple[list[Report], list[Report]]:
     reports = _repository().list_open_reports()
     lost_reports = [
@@ -52,14 +42,17 @@ def _split_open_reports() -> tuple[list[Report], list[Report]]:
     return lost_reports, found_reports
 
 
+def _mine(reports: list[Report], user_id: str) -> list[Report]:
+    return [report for report in reports if report.user_id == user_id]
+
+
 def _render_debug_tools() -> None:
     st.divider()
     with st.expander("Demo tools", expanded=False):
         st.caption(f"Database: `{DATABASE_PATH}`")
         if st.button("Reload demo users + sample reports", width="stretch"):
-            lost_reports, _found = seed_demo_reports()
+            seed_demo_reports()
             st.cache_resource.clear()
-            st.session_state["demo_lost_id"] = lost_reports[0].id
             st.success("Reloaded Alex, Sam, Mia and their sample items.")
             st.rerun()
 
@@ -70,37 +63,47 @@ def _persist(matches) -> None:
         repository.save_match(match)
 
 
-def _render_lost_tab(lost_reports: list[Report], found_reports: list[Report], user) -> None:
-    if not lost_reports or not found_reports:
-        st.warning("Need at least one open lost report and one found report.")
+def _pick_own_report(reports: list[Report], session_key: str, heading: str) -> Report | None:
+    if not reports:
+        return None
+    ids = {report.id for report in reports}
+    selected_id = st.session_state.get(session_key)
+    if selected_id not in ids:
+        selected_id = reports[0].id
+        st.session_state[session_key] = selected_id
+
+    st.markdown(f"**{heading}**")
+    for row_start in range(0, len(reports), 3):
+        row = reports[row_start : row_start + 3]
+        columns = st.columns(3)
+        for column, report in zip(columns, row):
+            with column:
+                if render_item_tile(
+                    report,
+                    selected=report.id == selected_id,
+                    button_key=f"{session_key}-tile-{report.id}",
+                ):
+                    st.session_state[session_key] = report.id
+                    st.rerun()
+
+    return next(report for report in reports if report.id == selected_id)
+
+
+def _render_lost_matches(my_lost: list[Report], found_reports: list[Report], user) -> None:
+    if not my_lost:
+        st.info("You have no open lost reports yet. Report a lost item first.")
+        return
+    if not found_reports:
+        st.warning("No open found reports to compare against.")
         return
 
-    default_index = 0
-    demo_lost_id = st.session_state.get("demo_lost_id")
-    if demo_lost_id:
-        for index, report in enumerate(lost_reports):
-            if report.id == demo_lost_id:
-                default_index = index
-                break
-    elif user:
-        for index, report in enumerate(lost_reports):
-            if report.user_id == user.id:
-                default_index = index
-                break
-
-    selected_index = st.selectbox(
-        "Lost item",
-        options=list(range(len(lost_reports))),
-        index=min(default_index, len(lost_reports) - 1),
-        format_func=lambda index: _label(lost_reports[index]),
-    )
-    selected = lost_reports[selected_index]
+    selected = _pick_own_report(my_lost, "matches_selected_lost_id", "Your lost items")
+    if selected is None:
+        return
     render_lost_context(selected)
 
     other_found = [
-        report
-        for report in found_reports
-        if not (selected.user_id and report.user_id == selected.user_id)
+        report for report in found_reports if report.user_id != user.id
     ]
     with st.spinner("Ranking found reports…"):
         matches = _engine().rank_matches(selected, other_found)
@@ -129,31 +132,20 @@ def _render_lost_tab(lost_reports: list[Report], found_reports: list[Report], us
                 )
 
 
-def _render_found_tab(lost_reports: list[Report], found_reports: list[Report], user) -> None:
-    if not lost_reports or not found_reports:
-        st.warning("Need at least one open lost report and one found report.")
+def _render_found_matches(lost_reports: list[Report], my_found: list[Report], user) -> None:
+    if not my_found:
+        st.info("You have no open found reports yet. Report a found item first.")
+        return
+    if not lost_reports:
+        st.warning("No open lost reports to compare against.")
         return
 
-    default_index = 0
-    if user:
-        for index, report in enumerate(found_reports):
-            if report.user_id == user.id:
-                default_index = index
-                break
-
-    selected_index = st.selectbox(
-        "Found item",
-        options=list(range(len(found_reports))),
-        index=min(default_index, len(found_reports) - 1),
-        format_func=lambda index: _label(found_reports[index]),
-        key="found-item-select",
+    selected_found = _pick_own_report(
+        my_found, "matches_selected_found_id", "Your found items"
     )
-    selected_found = found_reports[selected_index]
-    other_lost = [
-        report
-        for report in lost_reports
-        if not (selected_found.user_id and report.user_id == selected_found.user_id)
-    ]
+    if selected_found is None:
+        return
+    other_lost = [report for report in lost_reports if report.user_id != user.id]
 
     ranked: list = []
     engine = _engine()
@@ -174,25 +166,27 @@ def _render_found_tab(lost_reports: list[Report], found_reports: list[Report], u
 
 def render() -> None:
     st.title("Matches")
-    st.caption("Compare a lost report with found reports using text, photos, map pins, and time.")
+    st.caption("Match one of your items at a time against other people's reports.")
 
     user = current_user()
-    st.session_state["_matches_user_id"] = user.id if user else None
-    if user:
-        st.caption(f"Signed in as {user.display_name}. Pickup stays on your account.")
-    else:
-        st.caption("Log in so pickup can tell which side of the match you are.")
+    if user is None:
+        st.warning("Log in to see matches for your own lost and found items.")
+        return
 
+    st.caption(f"Signed in as {user.display_name}.")
     lost_reports, found_reports = _split_open_reports()
+    my_lost = _mine(lost_reports, user.id)
+    my_found = _mine(found_reports, user.id)
+
     view = st.radio(
-        "I want to match",
-        ["a lost item", "a found item"],
+        "Match",
+        ["My lost items", "My found items"],
         horizontal=True,
-        key="matches_side",
+        key="matches_view",
     )
-    if view == "a lost item":
-        _render_lost_tab(lost_reports, found_reports, user)
+    if view == "My lost items":
+        _render_lost_matches(my_lost, found_reports, user)
     else:
-        _render_found_tab(lost_reports, found_reports, user)
+        _render_found_matches(lost_reports, my_found, user)
 
     _render_debug_tools()

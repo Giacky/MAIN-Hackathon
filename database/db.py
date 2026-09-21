@@ -113,5 +113,6 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 "contact_phone": "TEXT",
                 "prefer_anonymous": "INTEGER NOT NULL DEFAULT 0",
                 "user_id": "TEXT",
+                "holding_note": "TEXT",
             },
         )

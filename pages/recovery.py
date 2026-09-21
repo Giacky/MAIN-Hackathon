@@ -234,6 +234,8 @@ def render() -> None:
 
     st.write(f"**Lost:** {lost.description}")
     st.write(f"**Found:** {found.description}")
+    if found.holding_note:
+        st.info(f"Finder note: {found.holding_note}")
 
     contact_column, meetup_column = st.columns(2)
     with contact_column:

@@ -127,6 +127,9 @@ def _ensure_report(repository: SQLiteRepository, report: Report) -> Report:
     if not existing.image_paths and report.image_paths:
         existing.image_paths = report.image_paths
         changed = True
+    if not existing.holding_note and report.holding_note:
+        existing.holding_note = report.holding_note
+        changed = True
     if changed:
         return repository.add_report(existing)
     return existing
@@ -142,6 +145,7 @@ def _report_from_preset(
     contact_phone: str,
     prefer_anonymous: bool,
     description: str | None = None,
+    holding_note: str | None = None,
 ) -> Report:
     preset = PRESETS[preset_id]
     latitude = float(preset["latitude"])
@@ -161,6 +165,7 @@ def _report_from_preset(
         contact_phone=contact_phone,
         prefer_anonymous=prefer_anonymous,
         user_id=user_id,
+        holding_note=holding_note,
     )
     report.image_paths = _copy_image(report.id, Path(preset["image"]))
     return report
@@ -195,6 +200,7 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             contact_phone="+31 6 2222 2222",
             prefer_anonymous=True,
             description="Black wallet found near the university library.",
+            holding_note="I left it at the library information desk.",
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_HOTEL_ID,
@@ -205,6 +211,7 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             contact_phone="+31 6 3333 3333",
             prefer_anonymous=False,
             description="Dark card holder left at a hotel reception.",
+            holding_note="I left it at the hotel reception counter.",
         ),
         _report_from_preset(
             report_id=DEMO_LOST_KEYS_ID,
@@ -223,6 +230,7 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             contact_email=sam.email,
             contact_phone="+31 6 2222 2222",
             prefer_anonymous=True,
+            holding_note="Left with the cafeteria staff.",
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_PHONE_ID,
@@ -232,6 +240,7 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             contact_email=mia.email,
             contact_phone="+31 6 3333 3333",
             prefer_anonymous=False,
+            holding_note="I left it with the café barista.",
         ),
     )
     for report in specs:

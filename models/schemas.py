@@ -69,6 +69,7 @@ class Report:
     contact_phone: str | None = None
     prefer_anonymous: bool = False
     user_id: str | None = None
+    holding_note: str | None = None
 
 
 @dataclass(slots=True)

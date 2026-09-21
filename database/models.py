@@ -66,6 +66,7 @@ def report_to_row(report: Report) -> dict[str, Any]:
         "contact_phone": report.contact_phone,
         "prefer_anonymous": int(report.prefer_anonymous),
         "user_id": report.user_id,
+        "holding_note": report.holding_note,
     }
 
 
@@ -90,6 +91,7 @@ def row_to_report(row: sqlite3.Row) -> Report:
         contact_phone=_row_value(row, "contact_phone"),
         prefer_anonymous=bool(_row_value(row, "prefer_anonymous", 0)),
         user_id=_row_value(row, "user_id"),
+        holding_note=_row_value(row, "holding_note"),
     )
 
 

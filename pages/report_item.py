@@ -1,4 +1,4 @@
-"""Lost/found report form: map pins, photos, contact, and classification."""
+"""Lost/found report form: details first, then map pins."""
 
 from datetime import date, datetime, time
 from pathlib import Path
@@ -29,17 +29,21 @@ def _classifier() -> ReportClassifier:
     return ReportClassifier()
 
 
+def _report_kind() -> str:
+    incoming = str(st.session_state.get("report_type", "lost")).lower()
+    return "lost" if incoming == "lost" else "found"
+
+
 def _apply_preset(preset_id: str) -> None:
     preset = PRESETS[preset_id]
     st.session_state["report_type"] = preset["report_type"]
-    st.session_state["form_report_type"] = (
-        "Lost" if preset["report_type"] == "lost" else "Found"
-    )
     st.session_state["form_description"] = preset["description"]
     st.session_state["form_event_date"] = date.today()
     st.session_state["form_event_time"] = time(12, 0)
     st.session_state["sample_image_path"] = str(preset["image"])
     st.session_state["sample_preset_label"] = preset["label"]
+    if preset["report_type"] == "found":
+        st.session_state["form_holding_note"] = "I left it at the front desk."
     replace_pins(
         [
             {
@@ -65,17 +69,12 @@ def _consume_pending_preset() -> None:
 
 
 def _ensure_form_defaults() -> None:
-    if "form_report_type" not in st.session_state:
-        incoming = str(st.session_state.get("report_type", "lost")).lower()
-        st.session_state["form_report_type"] = "Lost" if incoming == "lost" else "Found"
     if "form_event_date" not in st.session_state:
         st.session_state["form_event_date"] = date.today()
     if "form_event_time" not in st.session_state:
         st.session_state["form_event_time"] = time(12, 0)
     if "form_prefer_anonymous" not in st.session_state:
-        st.session_state["form_prefer_anonymous"] = (
-            st.session_state.get("form_report_type") == "Found"
-        )
+        st.session_state["form_prefer_anonymous"] = _report_kind() == "found"
 
 
 def _save_uploads(report_id: str, images: list) -> tuple[str, ...]:
@@ -137,25 +136,65 @@ def _render_debug_presets() -> None:
 
 
 def render() -> None:
-    st.title("Report an item")
     user = current_user()
     if user is None:
+        st.title("Report an item")
         st.warning("Log in first so this report stays on your account.")
         if st.button("Go to Account", type="primary"):
             st.switch_page(page_defs.account_page)
         return
 
-    st.caption(f"Reporting as {user.display_name}. Pin possible places, then submit.")
     _consume_pending_preset()
     _ensure_form_defaults()
-    if "form_contact_email" not in st.session_state:
-        st.session_state["form_contact_email"] = user.email
+    kind = _report_kind()
+    is_found = kind == "found"
+    st.title("Report a found item" if is_found else "Report a lost item")
+    st.caption(
+        f"Reporting as {user.display_name}. Contact uses your account email. "
+        "Use Home if you meant the other type of report."
+    )
 
+    st.text_area(
+        "Description",
+        placeholder="Example: Small black wallet with a blue card inside...",
+        key="form_description",
+    )
+    images = st.file_uploader(
+        "Pictures (optional)",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True,
+    )
+    st.date_input("Approximate date", key="form_event_date")
+    st.time_input("Approximate time", key="form_event_time")
+    if is_found:
+        st.text_area(
+            "Where is it now?",
+            placeholder="Example: I left it at the hotel reception counter.",
+            key="form_holding_note",
+        )
+        st.checkbox(
+            "Stay anonymous",
+            help="The owner can still propose a public meetup in the app.",
+            key="form_prefer_anonymous",
+        )
+    else:
+        st.checkbox(
+            "Hide my contact from the finder",
+            help="The finder can still propose a public meetup in the app.",
+            key="form_prefer_anonymous",
+        )
+    st.text_input("Phone (optional)", placeholder="+31 6 1234 5678", key="form_contact_phone")
+
+    sample_label = st.session_state.get("sample_preset_label")
+    sample_path = st.session_state.get("sample_image_path")
+    if sample_label and sample_path and Path(sample_path).is_file():
+        st.caption(f"Sample photo ready: **{sample_label}** (used if you don't upload).")
+
+    st.subheader("Where did this happen?")
+    st.caption("Click the map to add pins. Skip this if you are not sure.")
     map_col, detail_col = st.columns([1.7, 1], gap="large")
     with map_col:
         with st.container(border=True):
-            st.subheader("Possible locations")
-            st.caption("Click the map to add pins. Skip this if you are not sure.")
             render_location_map(
                 map_key="report_page",
                 height=420,
@@ -163,51 +202,10 @@ def render() -> None:
             )
     with detail_col:
         with st.container(border=True):
-            st.subheader("Pin details")
+            st.markdown("**Pin details**")
             render_pin_details(session_key=REPORT_PINS_KEY)
 
-    location_pins = pins(REPORT_PINS_KEY)
-    sample_label = st.session_state.get("sample_preset_label")
-    sample_path = st.session_state.get("sample_image_path")
-    if sample_label and sample_path and Path(sample_path).is_file():
-        st.caption(f"Sample photo ready: **{sample_label}** (used if you don't upload).")
-
-    report_kind = str(st.session_state.get("form_report_type", "Lost"))
-
-    with st.form("report-item-form", clear_on_submit=False):
-        st.radio(
-            "What happened?",
-            ["Lost", "Found"],
-            horizontal=True,
-            key="form_report_type",
-        )
-        st.text_area(
-            "Description",
-            placeholder="Example: Small black wallet with a blue card inside...",
-            key="form_description",
-        )
-        images = st.file_uploader(
-            "Pictures (optional)",
-            type=["jpg", "jpeg", "png", "webp"],
-            accept_multiple_files=True,
-        )
-        st.date_input("Approximate date", key="form_event_date")
-        st.time_input("Approximate time", key="form_event_time")
-        st.markdown("**How can the other person reach you? (optional)**")
-        st.text_input("Email", placeholder="you@example.com", key="form_contact_email")
-        st.text_input("Phone", placeholder="+31 6 1234 5678", key="form_contact_phone")
-        anonymous_label = (
-            "Stay anonymous"
-            if report_kind == "Found"
-            else "Hide my contact from the finder"
-        )
-        st.checkbox(
-            anonymous_label,
-            help="The other person can still propose a public meetup in the app.",
-            key="form_prefer_anonymous",
-        )
-        submitted = st.form_submit_button("Submit report", type="primary")
-
+    submitted = st.button("Submit report", type="primary")
     if submitted:
         description = str(st.session_state.get("form_description", "")).strip()
         if not description:
@@ -215,7 +213,6 @@ def render() -> None:
             _render_debug_presets()
             return
 
-        report_type_value = str(st.session_state.get("form_report_type", "Lost"))
         try:
             classification = _classifier().classify(description)
         except Exception as exc:
@@ -223,6 +220,7 @@ def render() -> None:
             _render_debug_presets()
             return
 
+        location_pins = pins(REPORT_PINS_KEY)
         locations = tuple(
             LocationGuess(
                 id=pin["id"],
@@ -233,10 +231,10 @@ def render() -> None:
             for pin in location_pins
         )
         first = locations[0] if locations else None
-        contact_email = str(st.session_state.get("form_contact_email", "")).strip()
         contact_phone = str(st.session_state.get("form_contact_phone", "")).strip()
+        holding_note = str(st.session_state.get("form_holding_note", "")).strip()
         report = Report(
-            report_type=ReportType(report_type_value.lower()),
+            report_type=ReportType.FOUND if is_found else ReportType.LOST,
             description=description,
             category=classification.category,
             urgency=classification.urgency,
@@ -248,14 +246,21 @@ def render() -> None:
             longitude=first.longitude if first else None,
             radius_meters=first.radius_meters if first else None,
             locations=locations,
-            contact_email=contact_email or None,
+            contact_email=user.email,
             contact_phone=contact_phone or None,
-            prefer_anonymous=bool(st.session_state.get("form_prefer_anonymous", False)),
+            prefer_anonymous=bool(st.session_state.get("form_prefer_anonymous", is_found)),
             user_id=user.id,
+            holding_note=holding_note or None if is_found else None,
         )
         uploaded_paths = _save_uploads(report.id, list(images or []))
         report.image_paths = uploaded_paths or _attach_sample_image(report.id)
         _repository().add_report(report)
+        if is_found:
+            st.session_state["matches_view"] = "My found items"
+            st.session_state["matches_selected_found_id"] = report.id
+        else:
+            st.session_state["matches_view"] = "My lost items"
+            st.session_state["matches_selected_lost_id"] = report.id
         pin_note = (
             f" with {len(locations)} location pin{'s' if len(locations) != 1 else ''}"
             if locations
@@ -267,7 +272,6 @@ def render() -> None:
         _render_classification(classification)
         match_column, map_column = st.columns(2)
         if match_column.button("See matches", type="primary"):
-            st.session_state["demo_lost_id"] = report.id
             st.switch_page(page_defs.matches_page)
         if map_column.button("View on map"):
             st.switch_page(page_defs.map_page)

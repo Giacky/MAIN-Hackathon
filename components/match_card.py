@@ -74,6 +74,8 @@ def render_match_card(
                 st.write(found_report.description)
                 if found_report.category:
                     st.caption(f"Category: {found_report.category}")
+                if found_report.holding_note:
+                    st.caption(f"Where it is now: {found_report.holding_note}")
                 if found_report.prefer_anonymous:
                     st.caption("Finder is anonymous")
                 _show_image(found_report.image_paths, "Found")

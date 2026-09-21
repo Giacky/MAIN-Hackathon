@@ -23,11 +23,9 @@ def render() -> None:
     lost_column, found_column, account_column = st.columns(3)
     if lost_column.button("I lost something", type="primary", width="stretch"):
         st.session_state["report_type"] = "lost"
-        st.session_state["form_report_type"] = "Lost"
         st.switch_page(page_defs.report_page)
     if found_column.button("I found something", width="stretch"):
         st.session_state["report_type"] = "found"
-        st.session_state["form_report_type"] = "Found"
         st.switch_page(page_defs.report_page)
     if account_column.button("Account / demo login", width="stretch"):
         st.switch_page(page_defs.account_page)
