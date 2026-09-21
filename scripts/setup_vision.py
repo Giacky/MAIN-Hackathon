@@ -12,7 +12,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 os.environ["LOST_FOUND_MOCK_ML"] = "0"
-# Prefer the vision stack for this setup script.
 os.environ.pop("LOST_FOUND_IMAGE_BACKEND", None)
 
 from PIL import Image
@@ -68,8 +67,8 @@ def main() -> int:
     except Exception as exc:
         print(f"FAILED at feature matcher: {exc}", file=sys.stderr)
         print(
-            "CLIP remains available as automatic fallback "
-            f"(image_backend={image_backend()!r}).",
+            "Photo scores will be unavailable until this loads; ranking falls back "
+            "to description, place, and time.",
             file=sys.stderr,
         )
         return 1

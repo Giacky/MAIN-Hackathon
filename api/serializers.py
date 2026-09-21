@@ -14,6 +14,7 @@ from models.schemas import (
     ReportStatus,
     User,
 )
+from services.demo_seed import avatar_for_user
 from services.matching_engine import gate_reason
 
 
@@ -34,6 +35,7 @@ def user_public(user: User) -> dict[str, str]:
         "id": user.id,
         "email": user.email,
         "display_name": user.display_name,
+        "avatar": avatar_for_user(user.id),
     }
 
 
@@ -102,8 +104,8 @@ def _visual_from_match(match: MatchResult) -> dict[str, Any] | None:
     """Expose the optional DINOv2 + LightGlue evidence carried on MatchResult.
 
     Returns null when there is no photo score at all. When a photo score exists
-    but the pair was not shortlisted (CLIP fallback, mock ML, or outside the
-    DINOv2 top-N), `shortlisted` is False and the evidence fields are null so
+    but the pair was not shortlisted (mock ML, or outside the DINOv2 top-N),
+    `shortlisted` is False and the evidence fields are null so
     the client can say "not in the visual shortlist" without treating it as an error.
     """
     if match.image_score is None:

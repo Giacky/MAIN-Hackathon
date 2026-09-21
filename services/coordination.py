@@ -9,8 +9,10 @@ from services.demo_seed import (
     DEMO_FOUND_LIBRARY_ID,
     DEMO_LOST_ID,
     DEMO_MIA_USER_ID,
+    DEMO_NOOR_USER_ID,
     DEMO_OWNER_USER_ID,
     DEMO_PASSWORD,
+    DEMO_REPORT_IDS,
     ensure_demo_data,
 )
 
@@ -21,8 +23,10 @@ __all__ = [
     "DEMO_FOUND_LIBRARY_ID",
     "DEMO_LOST_ID",
     "DEMO_MIA_USER_ID",
+    "DEMO_NOOR_USER_ID",
     "DEMO_OWNER_USER_ID",
     "DEMO_PASSWORD",
+    "DEMO_REPORT_IDS",
     "can_respond_to_meetup",
     "contact_for_viewer",
     "display_name_for_sender",

@@ -1,4 +1,4 @@
-"""Photo similarity: DINOv2 shortlist + LightGlue re-rank, with CLIP fallback."""
+"""Photo similarity: DINOv2 shortlist + LightGlue re-rank."""
 
 from __future__ import annotations
 
@@ -14,8 +14,6 @@ from services.ml_runtime import (
     dino_processor,
     feature_device,
     feature_matcher_stack,
-    image_backend,
-    image_embedding_model,
     rembg_session,
     use_mock_ml,
 )
@@ -28,6 +26,12 @@ _GLUE_WEIGHT = 0.65
 _MIN_INLIERS = 8
 _INLIER_NORM = 40.0
 _CROP_PAD = 0.08
+
+VISION_UNAVAILABLE_ERROR = (
+    "Photo matching unavailable (the DINOv2 / LightGlue models could not score these "
+    "pictures). Description, location, and time were still used. Run "
+    "`python scripts/setup_vision.py` in the project venv, then restart the API."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +54,6 @@ class ImageMatcher:
     """Compare lost/found photos; returns None score when either side has no readable images."""
 
     def __init__(self) -> None:
-        self._clip_cache: dict[str, Any] = {}
         self._dino_cache: dict[str, Any] = {}
         self._crop_cache: dict[str, Any] = {}
         self._lock = Lock()
@@ -68,9 +71,10 @@ class ImageMatcher:
     ) -> dict[str, ImageCompareResult]:
         """Score many found reports against one lost anchor.
 
-        LightGlue runs only for the top-_SHORTLIST_SIZE DINOv2 pairs when the
-        dino_lightglue backend is active. Outside the shortlist, score is None
-        so matching weights renormalize without a weak photo zeroing the rank.
+        LightGlue runs only for the top-_SHORTLIST_SIZE DINOv2 pairs. Outside
+        the shortlist, score is None so matching weights renormalize without a
+        weak photo zeroing the rank. If the vision stack cannot load at all,
+        every candidate with photos gets score None plus an image_error.
         """
         anchor_files = [path for path in anchor_paths if Path(path).is_file()]
         prepared: list[tuple[str, list[str]]] = []
@@ -91,73 +95,16 @@ class ImageMatcher:
                 )
             return out
 
-        backend = image_backend()
-        if backend == "clip":
-            return self._score_with_clip(anchor_files, prepared)
-
         try:
             return self._score_with_dino_lightglue(anchor_files, prepared)
         except Exception:
-            logger.exception("DINOv2/LightGlue photo matching failed; trying CLIP")
-            try:
-                return self._score_with_clip(anchor_files, prepared)
-            except Exception:
-                logger.exception("CLIP photo matching also failed")
-                error = (
-                    "Photo matching failed (visual models could not score these pictures). "
-                    "Run `python scripts/setup_vision.py` (or `python scripts/setup_clip.py`) "
-                    "in the project venv, then restart the app."
-                )
-                for candidate_id, files in prepared:
-                    out[candidate_id] = ImageCompareResult(
-                        score=None,
-                        error=error if files else None,
-                    )
-                return out
-
-    def _score_with_clip(
-        self,
-        anchor_files: list[str],
-        prepared: list[tuple[str, list[str]]],
-    ) -> dict[str, ImageCompareResult]:
-        out: dict[str, ImageCompareResult] = {}
-        try:
-            anchor_vectors = [self._embed(path) for path in anchor_files]
-        except Exception:
-            logger.exception("CLIP photo matching failed")
-            error = (
-                "Photo matching failed (CLIP could not score these pictures). "
-                "Run `python scripts/setup_clip.py` in the project venv, then restart the app."
-            )
+            logger.exception("DINOv2/LightGlue photo matching failed")
             for candidate_id, files in prepared:
                 out[candidate_id] = ImageCompareResult(
                     score=None,
-                    error=error if files else None,
+                    error=VISION_UNAVAILABLE_ERROR if files else None,
                 )
             return out
-
-        for candidate_id, files in prepared:
-            if not files:
-                out[candidate_id] = ImageCompareResult(score=None)
-                continue
-            try:
-                found_vectors = [self._embed(path) for path in files]
-            except Exception:
-                logger.exception("CLIP photo matching failed for %s", candidate_id)
-                out[candidate_id] = ImageCompareResult(
-                    score=None,
-                    error=(
-                        "Photo matching failed (CLIP could not score these pictures). "
-                        "Run `python scripts/setup_clip.py` in the project venv, then restart the app."
-                    ),
-                )
-                continue
-            best = 0.0
-            for left in anchor_vectors:
-                for right in found_vectors:
-                    best = max(best, float((left * right).sum()))
-            out[candidate_id] = ImageCompareResult(score=_clamp01(best))
-        return out
 
     def _score_with_dino_lightglue(
         self,
@@ -368,29 +315,3 @@ class ImageMatcher:
             return 0.0, inliers, inlier_ratio
         glue_score = _clamp01(inliers / _INLIER_NORM) * inlier_ratio
         return float(glue_score), inliers, inlier_ratio
-
-    def _embed_clip(self, image_path: str):
-        with self._lock:
-            cached = self._clip_cache.get(image_path)
-            if cached is not None:
-                return cached
-
-        from PIL import Image
-
-        from utils.images import prepare_clip_image
-
-        with Image.open(image_path) as image:
-            rgb = prepare_clip_image(image)
-            vector = image_embedding_model().encode(
-                rgb,
-                normalize_embeddings=True,
-                convert_to_numpy=True,
-            )
-
-        with self._lock:
-            self._clip_cache[image_path] = vector
-        return vector
-
-    # Back-compat for tests that patch `_embed`.
-    def _embed(self, image_path: str):
-        return self._embed_clip(image_path)

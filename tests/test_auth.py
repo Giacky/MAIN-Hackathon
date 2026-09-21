@@ -52,7 +52,7 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(len(mine), 1)
         self.assertEqual(mine[0].user_id, user.id)
 
-    def test_three_dummy_login_accounts_exist(self) -> None:
+    def test_demo_login_accounts_exist(self) -> None:
         with TemporaryDirectory() as directory:
             repository = SQLiteRepository(Path(directory) / "test.sqlite")
             ensure_demo_handoff_reports(repository)
@@ -60,11 +60,28 @@ class AuthTests(unittest.TestCase):
                 repository.get_user_by_email(account.email) for account in DEMO_ACCOUNTS
             ]
 
-        self.assertEqual(len(loaded), 3)
+        self.assertEqual(len(loaded), len(DEMO_ACCOUNTS))
         for account, user in zip(DEMO_ACCOUNTS, loaded, strict=True):
             self.assertIsNotNone(user)
             self.assertEqual(user.display_name, account.display_name)
             self.assertTrue(verify_password(DEMO_PASSWORD, user.password_hash))
+
+    def test_every_demo_persona_has_lost_and_found_items(self) -> None:
+        with TemporaryDirectory() as directory:
+            repository = SQLiteRepository(Path(directory) / "test.sqlite")
+            ensure_demo_handoff_reports(repository)
+            per_user = {
+                account.user_id: repository.list_reports_for_user(account.user_id)
+                for account in DEMO_ACCOUNTS
+            }
+
+        for account in DEMO_ACCOUNTS:
+            kinds = {report.report_type for report in per_user[account.user_id]}
+            self.assertEqual(kinds, {ReportType.LOST, ReportType.FOUND}, account.email)
+            self.assertRegex(account.avatar, r"^#[0-9A-Fa-f]{6}$")
+            self.assertTrue(account.summary.startswith("Lost "), account.summary)
+            self.assertIn("found", account.summary)
+        self.assertEqual(len({account.avatar for account in DEMO_ACCOUNTS}), len(DEMO_ACCOUNTS))
 
 
 if __name__ == "__main__":

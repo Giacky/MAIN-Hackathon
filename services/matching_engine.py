@@ -20,7 +20,7 @@ _WEIGHT_TIME = 0.09
 
 
 def _type_value(report: Report) -> str:
-    """Compare report types by value so Streamlit hot-reload enum identity cannot break matching."""
+    """Compare report types by value so enum identity across module reloads cannot break matching."""
     report_type = report.report_type
     if isinstance(report_type, ReportType):
         return report_type.value

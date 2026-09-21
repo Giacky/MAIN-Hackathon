@@ -14,7 +14,9 @@ from models.schemas import (
     ChatMessage,
     Meetup,
     MeetupStatus,
+    Report,
     ReportStatus,
+    ReportType,
     User,
     as_utc,
     match_thread_id,
@@ -51,6 +53,75 @@ def _load_pair(
     if role not in {"lost", "found"}:
         raise HTTPException(status_code=403, detail="Not a party to this match")
     return lost, found, role
+
+
+def _is_recovered(report: Report) -> bool:
+    status = report.status.value if hasattr(report.status, "value") else report.status
+    return str(status) == ReportStatus.RECOVERED.value
+
+
+def _type_value(report: Report) -> str:
+    kind = report.report_type
+    return kind.value if isinstance(kind, ReportType) else str(kind)
+
+
+@router.get("")
+def list_coordination(
+    user: User = Depends(get_current_user),
+    repository: SQLiteRepository = Depends(get_repository),
+) -> dict:
+    """Pickup threads on the viewer's reports that have a meetup or at least one message."""
+    all_reports = repository.list_reports()
+    lost_reports = [report for report in all_reports if _type_value(report) == ReportType.LOST.value]
+    found_reports = [report for report in all_reports if _type_value(report) == ReportType.FOUND.value]
+    mine = [report for report in all_reports if report.user_id == user.id]
+
+    candidate_pairs: dict[str, tuple[Report, Report]] = {}
+    for report in mine:
+        if _type_value(report) == ReportType.LOST.value:
+            for found in found_reports:
+                candidate_pairs.setdefault(match_thread_id(report.id, found.id), (report, found))
+        else:
+            for lost in lost_reports:
+                candidate_pairs.setdefault(match_thread_id(lost.id, report.id), (lost, report))
+
+    threads: list[tuple[bool, datetime, dict]] = []
+    for match_id, (lost, found) in candidate_pairs.items():
+        meetup = repository.get_meetup(match_id)
+        messages = repository.list_chat_messages(match_id)
+        if meetup is None and not messages:
+            continue
+        role = "lost" if lost.user_id == user.id else "found"
+        recovered = _is_recovered(lost) or _is_recovered(found)
+        activity_candidates = [message.timestamp for message in messages]
+        if meetup is not None:
+            activity_candidates.append(meetup.created_at)
+        last_activity = max(as_utc(value) for value in activity_candidates if value is not None)
+        threads.append(
+            (
+                recovered,
+                last_activity,
+                {
+                    "lost": report_public(lost, include_contact=role == "lost"),
+                    "found": report_public(found, include_contact=role == "found"),
+                    "role": role,
+                    "meetup_status": (
+                        "none"
+                        if meetup is None
+                        else (
+                            meetup.status.value
+                            if hasattr(meetup.status, "value")
+                            else str(meetup.status)
+                        )
+                    ),
+                    "last_message": messages[-1].message if messages else None,
+                    "recovered": recovered,
+                },
+            )
+        )
+
+    threads.sort(key=lambda item: (item[0], -item[1].timestamp()))
+    return {"threads": [payload for _recovered, _activity, payload in threads]}
 
 
 @router.get("/{lost_id}/{found_id}")

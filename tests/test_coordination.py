@@ -8,6 +8,7 @@ from models.schemas import Meetup, MeetupStatus, Report, ReportType, match_threa
 from services.coordination import (
     DEMO_FINDER_USER_ID,
     DEMO_MIA_USER_ID,
+    DEMO_REPORT_IDS,
     can_respond_to_meetup,
     contact_for_viewer,
     display_name_for_sender,
@@ -118,7 +119,8 @@ class CoordinationTests(unittest.TestCase):
             ids = {report.id for report in repository.list_reports()}
 
         self.assertNotIn("extra-duplicate", ids)
-        self.assertEqual(len(ids), 5)
+        self.assertEqual(len(ids), len(DEMO_REPORT_IDS))
+        self.assertEqual(ids, set(DEMO_REPORT_IDS))
 
 
 if __name__ == "__main__":

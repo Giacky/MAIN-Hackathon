@@ -214,9 +214,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Streamlit
-.streamlit/secrets.toml
-
 .vscode/
 
 # Smart Lost & Found runtime data
@@ -228,7 +225,7 @@ data/uploads/*
 .DS_Store
 .idea/
 
-# Local model caches (never commit CLIP / HF weights)
+# Local model caches (never commit Hugging Face / rembg weights)
 .cache/
 huggingface-cache/
 .huggingface/

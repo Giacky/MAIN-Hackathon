@@ -144,43 +144,63 @@ class ImageMatchingTests(unittest.TestCase):
         self.assertEqual(result.score, 0.5)
         self.assertIsNone(result.error)
 
-    def test_clip_failure_is_not_treated_as_missing_photo(self) -> None:
+    def test_vision_failure_is_not_treated_as_missing_photo(self) -> None:
+        """If DINOv2/LightGlue cannot score, score is None but image_error explains why."""
         matcher = ImageMatcher()
         with TemporaryDirectory() as directory:
             lost_path = Path(directory) / "lost.jpg"
             found_path = Path(directory) / "found.jpg"
             lost_path.write_bytes(b"fake")
             found_path.write_bytes(b"fake")
-            matcher._embed = lambda path: (_ for _ in ()).throw(RuntimeError("clip down"))
+
+            def _boom(*_args, **_kwargs):
+                raise RuntimeError("vision stack down")
+
+            matcher._score_with_dino_lightglue = _boom  # type: ignore[method-assign]
             os.environ["LOST_FOUND_MOCK_ML"] = "0"
-            os.environ["LOST_FOUND_IMAGE_BACKEND"] = "clip"
             try:
                 result = matcher.compare([str(lost_path)], [str(found_path)])
+                no_photo = matcher.compare([str(lost_path)], [])
             finally:
                 os.environ["LOST_FOUND_MOCK_ML"] = "1"
-                os.environ.pop("LOST_FOUND_IMAGE_BACKEND", None)
         self.assertIsNone(result.score)
-        self.assertIsNotNone(result.error)
-        self.assertTrue(bool(result.error))
+        self.assertTrue(result.error)
+        self.assertIn("setup_vision.py", result.error)
+        self.assertIsNone(no_photo.score)
+        self.assertIsNone(no_photo.error)
+
+    def test_image_backend_only_accepts_dino_lightglue(self) -> None:
+        from services.ml_runtime import image_backend
+
+        os.environ["LOST_FOUND_MOCK_ML"] = "0"
+        try:
+            os.environ["LOST_FOUND_IMAGE_BACKEND"] = "clip"
+            self.assertEqual(image_backend(), "dino_lightglue")
+            os.environ["LOST_FOUND_IMAGE_BACKEND"] = "dino_lightglue"
+            self.assertEqual(image_backend(), "dino_lightglue")
+        finally:
+            os.environ.pop("LOST_FOUND_IMAGE_BACKEND", None)
+            os.environ["LOST_FOUND_MOCK_ML"] = "1"
+        self.assertEqual(image_backend(), "mock")
 
 
 class ImagePrepTests(unittest.TestCase):
-    def test_center_crop_resizes_to_clip_square(self) -> None:
+    def test_upload_image_keeps_aspect_and_fits_max_side(self) -> None:
         from PIL import Image
 
-        from utils.images import CLIP_IMAGE_SIZE, prepare_clip_image, save_prepared_image
+        from utils.images import UPLOAD_MAX_SIDE, prepare_upload_image, save_upload_image
 
-        wide = Image.new("RGB", (640, 240), color=(20, 80, 160))
-        prepared = prepare_clip_image(wide)
-        self.assertEqual(prepared.size, (CLIP_IMAGE_SIZE, CLIP_IMAGE_SIZE))
+        wide = Image.new("RGB", (2560, 960), color=(20, 80, 160))
+        prepared = prepare_upload_image(wide)
+        self.assertEqual(prepared.size, (UPLOAD_MAX_SIDE, 480))
 
         with TemporaryDirectory() as directory:
             source = Path(directory) / "wide.png"
             wide.save(source)
-            saved = save_prepared_image(source, Path(directory) / "out.png")
+            saved = save_upload_image(source, Path(directory) / "out.png")
             with Image.open(saved) as loaded:
-                self.assertEqual(loaded.size, (CLIP_IMAGE_SIZE, CLIP_IMAGE_SIZE))
-                self.assertEqual(saved.suffix, ".jpg")
+                self.assertEqual(loaded.size, (UPLOAD_MAX_SIDE, 480))
+            self.assertEqual(saved.suffix, ".jpg")
 
 
 class WeightingTests(unittest.TestCase):

@@ -21,7 +21,11 @@ from api.main import create_app
 from database.repository import SQLiteRepository
 from models.schemas import Report, ReportType
 from services.demo_seed import (
+    AVATAR_PALETTE,
+    DEMO_ACCOUNTS,
+    DEMO_FOUND_EARBUDS_ID,
     DEMO_FOUND_LIBRARY_ID,
+    DEMO_LOST_EARBUDS_ID,
     DEMO_LOST_ID,
     DEMO_PASSWORD,
     ensure_demo_data,
@@ -83,6 +87,42 @@ class ApiTests(unittest.TestCase):
             json={"email": "alex@demo.local", "password": "nope"},
         )
         self.assertEqual(response.status_code, 401)
+
+    def test_demo_accounts_are_public_and_login_returns_avatar(self) -> None:
+        response = self.client.get("/api/auth/demo-accounts")
+        self.assertEqual(response.status_code, 200, response.text)
+        accounts = response.json()["accounts"]
+        self.assertEqual(len(accounts), len(DEMO_ACCOUNTS))
+        for account, expected in zip(accounts, DEMO_ACCOUNTS, strict=True):
+            self.assertEqual(set(account), {"name", "email", "avatar", "summary"})
+            self.assertEqual(account["name"], expected.display_name)
+            self.assertEqual(account["email"], expected.email)
+            self.assertIn(account["avatar"], AVATAR_PALETTE)
+            self.assertTrue(account["summary"].startswith("Lost "))
+        emails = {account["email"] for account in accounts}
+        self.assertEqual(
+            emails,
+            {"alex@demo.local", "sam@demo.local", "mia@demo.local", "noor@demo.local"},
+        )
+        alex = next(item for item in accounts if item["email"] == "alex@demo.local")
+        self.assertEqual(alex["summary"], "Lost a wallet and AirPods, found keys and a backpack")
+
+        login = self._login("noor@demo.local")
+        noor = next(item for item in accounts if item["email"] == "noor@demo.local")
+        self.assertEqual(login["user"]["avatar"], noor["avatar"])
+        self.assertEqual(login["user"]["display_name"], "Noor Bakker")
+        me = self.client.get("/api/auth/me").json()["user"]
+        self.assertEqual(me["avatar"], noor["avatar"])
+
+        # Non-demo users still get a palette color, and it is stable per id.
+        register = self.client.post(
+            "/api/auth/register",
+            json={"display_name": "Luuk", "email": "luuk@example.com", "password": "pass"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        avatar = register.json()["user"]["avatar"]
+        self.assertIn(avatar, AVATAR_PALETTE)
+        self.assertEqual(self.client.get("/api/auth/me").json()["user"]["avatar"], avatar)
 
     def test_create_multipart_report_and_safe_image_url(self) -> None:
         self._login("alex@demo.local")
@@ -218,6 +258,81 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(accepted.status_code, 200, accepted.text)
         self.assertEqual(accepted.json()["meetup"]["status"], "accepted")
+
+    def test_coordination_list_requires_auth(self) -> None:
+        self.assertEqual(self.client.get("/api/coordination").status_code, 401)
+
+    def test_coordination_list_shows_active_threads_sorted(self) -> None:
+        self._login("alex@demo.local")
+        # No meetups or messages yet: nothing to list.
+        empty = self.client.get("/api/coordination")
+        self.assertEqual(empty.status_code, 200, empty.text)
+        self.assertEqual(empty.json(), {"threads": []})
+
+        # Alex proposes a meetup on the wallet thread.
+        propose = self.client.post(
+            f"/api/coordination/{DEMO_LOST_ID}/{DEMO_FOUND_LIBRARY_ID}/meetup",
+            json={
+                "location_name": "University library entrance",
+                "meeting_time": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        self.assertEqual(propose.status_code, 200, propose.text)
+        # Then sends a message on the AirPods thread (more recent activity).
+        message = self.client.post(
+            f"/api/coordination/{DEMO_LOST_EARBUDS_ID}/{DEMO_FOUND_EARBUDS_ID}/messages",
+            json={"message": "Still have them?"},
+        )
+        self.assertEqual(message.status_code, 200, message.text)
+
+        response = self.client.get("/api/coordination")
+        self.assertEqual(response.status_code, 200, response.text)
+        threads = response.json()["threads"]
+        self.assertEqual(len(threads), 2)
+        for thread in threads:
+            self.assertEqual(
+                set(thread),
+                {"lost", "found", "role", "meetup_status", "last_message", "recovered"},
+            )
+            self.assertEqual(thread["role"], "lost")
+            self.assertFalse(thread["recovered"])
+            self.assertIn("contact_email", thread["lost"])
+            self.assertNotIn("image_paths", thread["lost"])
+
+        # Most recent activity first.
+        self.assertEqual(threads[0]["lost"]["id"], DEMO_LOST_EARBUDS_ID)
+        self.assertEqual(threads[0]["found"]["id"], DEMO_FOUND_EARBUDS_ID)
+        self.assertEqual(threads[0]["meetup_status"], "none")
+        self.assertEqual(threads[0]["last_message"], "Still have them?")
+        self.assertEqual(threads[1]["lost"]["id"], DEMO_LOST_ID)
+        self.assertEqual(threads[1]["found"]["id"], DEMO_FOUND_LIBRARY_ID)
+        self.assertEqual(threads[1]["meetup_status"], "proposed")
+        self.assertIsNone(threads[1]["last_message"])
+
+        # Recovered threads sort last even when their activity is newest.
+        recovered = self.client.post(
+            f"/api/coordination/{DEMO_LOST_EARBUDS_ID}/{DEMO_FOUND_EARBUDS_ID}/recovered"
+        )
+        self.assertEqual(recovered.status_code, 200, recovered.text)
+        threads = self.client.get("/api/coordination").json()["threads"]
+        self.assertEqual(threads[0]["lost"]["id"], DEMO_LOST_ID)
+        self.assertEqual(threads[1]["lost"]["id"], DEMO_LOST_EARBUDS_ID)
+        self.assertTrue(threads[1]["recovered"])
+
+        # The finder sees the same wallet thread from the found side, anonymous contact hidden.
+        self.client.post("/api/auth/logout")
+        self._login("sam@demo.local")
+        sam_threads = self.client.get("/api/coordination").json()["threads"]
+        self.assertEqual(len(sam_threads), 1)
+        self.assertEqual(sam_threads[0]["role"], "found")
+        self.assertEqual(sam_threads[0]["found"]["id"], DEMO_FOUND_LIBRARY_ID)
+        self.assertIn("contact_email", sam_threads[0]["found"])
+        self.assertNotIn("contact_email", sam_threads[0]["lost"])
+
+        # Noor is not a party to any thread.
+        self.client.post("/api/auth/logout")
+        self._login("noor@demo.local")
+        self.assertEqual(self.client.get("/api/coordination").json(), {"threads": []})
 
     def test_recovered_flips_both_statuses(self) -> None:
         self._login("alex@demo.local")

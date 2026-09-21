@@ -1,112 +1,104 @@
 # Sample test data
 
-Use these descriptions and images in **Report Item**, then open **Matches**.
+The photos in `samples/images/` back both the demo seed (`services/demo_seed.py`) and the
+"Try a sample" presets in the report form (`samples/presets.py`, served by
+`GET /api/demo/presets`). Each item has two different photos: one for the lost report and
+one for the found report, so the photo matcher has something real to compare.
 
-Images live in `samples/images/`. Copy-paste the description text into the form and upload the matching PNG.
+The files were exported with dark letterbox bars; `python scripts/crop_samples.py` strips
+them in place (already applied to the committed PNGs). `samples/mouse/` is unused.
 
-Default map pin in the app (Maastricht) works for all “nearby” examples. For a far mismatch, change latitude to `52.3702` (Amsterdam).
-
----
-
-## Scenario A — strong wallet match
-
-| Role | Description (copy) | Image |
-|------|--------------------|-------|
-| **Lost** | Small black leather wallet with a blue bank card and student ID inside. Lost near the university library. | `lost_black_wallet.png` |
-| **Found** | Black wallet found by the university library entrance. Contains cards and looks like leather. | `found_black_wallet.png` |
-
-Use the same date/time (±1 hour) and keep the default location/radius.
-
-**Expect:** high text + geo + time; image score should also be high if CLIP is loaded.
+Default map pins are in Maastricht. The "far" distractors use Amsterdam (`52.3702, 4.8952`).
 
 ---
 
-## Scenario B — wallet distractor (weaker)
+## Seeded pairs
 
-| Role | Description (copy) | Image |
-|------|--------------------|-------|
-| **Lost** | *(same as Scenario A lost)* | `lost_black_wallet.png` |
-| **Found** | Brown bifold wallet with cash only, no cards. Found at the train station. | `found_brown_wallet.png` |
+| Item | Lost (owner, photo) | Found (finder, photo) | Notes |
+|------|---------------------|-----------------------|-------|
+| Wallet | Alex, `lost_black_wallet.png` | Sam (anonymous), `found_black_wallet.png` | Mia's `found_brown_wallet.png` card holder at a hotel is a same-category distractor |
+| AirPods | Alex, `lost_white_earbuds.png` | Mia, `found_white_earbuds.png` | Same bus stop, one hour apart |
+| Keys | Sam, `lost_silver_keys.png` | Alex, `found_silver_keys.png` | Tapijn cafeteria |
+| Glasses | Mia, `lost_black_glasses.png` | Sam (anonymous), `found_black_glasses.png` | Inner City Library |
+| Bottle | Sam, `lost_green_bottle.png` | Mia, `found_green_bottle.png` | Noor's `found_green_bottle_far.png` is in Amsterdam, two days later |
+| Backpack | Noor, `lost_red_backpack.png` | Alex, `found_red_bag.png` | Boschstraat bus stop |
+| Phone | – | Sam, `found_blue_phone.png` | Amsterdam mismatch; should never rank against the wallet |
 
-Same place/time as A, or move the found report ~2 km away.
-
-**Expect:** lower text/image than Scenario A; overall rank should put A above B.
-
----
-
-## Scenario C — keys match
-
-| Role | Description (copy) | Image |
-|------|--------------------|-------|
-| **Lost** | Set of three silver house keys on a blue plastic key fob. Lost outside the student cafeteria. | `lost_silver_keys.png` |
-| **Found** | Metal keys with a blue tag found on a bench near the cafeteria. | `found_silver_keys.png` |
-
-**Expect:** strong keys ↔ keys match; should not top-rank against the wallet lost item.
+Event times run from three days ago to one hour ago so time scores differ per pair.
 
 ---
 
-## Scenario D — clear mismatch
+## Manual scenarios
 
-| Role | Description (copy) | Image |
-|------|--------------------|-------|
-| **Lost** | *(wallet from A)* | `lost_black_wallet.png` |
-| **Found** | Blue smartphone with a cracked protective case left on a café table. | `found_blue_phone.png` |
+Copy a description into **Report**, pick the matching sample photo, then open **Matches**.
 
-Optionally set found time to 3 days later and latitude `52.3702`.
+### A — strong wallet match
 
-**Expect:** low overall score vs Scenario A.
+| Role | Description | Image |
+|------|-------------|-------|
+| Lost | Small black leather wallet with a blue bank card and student ID inside. Lost near the university library. | `lost_black_wallet.png` |
+| Found | Black wallet found by the university library entrance. Contains cards and looks like leather. | `found_black_wallet.png` |
+
+Expect: high text, place, and time scores; photo score high when the vision stack is loaded.
+
+### B — wallet distractor
+
+| Role | Description | Image |
+|------|-------------|-------|
+| Found | Brown bifold wallet with cash only, no cards. Found at the train station. | `found_brown_wallet.png` |
+
+Expect: same category as A but lower text and photo scores, so A ranks above B.
+
+### C — keys
+
+| Role | Description | Image |
+|------|-------------|-------|
+| Lost | Set of three silver house keys on a blue plastic key fob. Lost outside the student cafeteria. | `lost_silver_keys.png` |
+| Found | Metal keys with a blue tag found on a bench near the cafeteria. | `found_silver_keys.png` |
+
+### D — clear mismatch
+
+| Role | Description | Image |
+|------|-------------|-------|
+| Found | Blue smartphone with a cracked protective case left on a café table. | `found_blue_phone.png` |
+
+Expect: hard category gate against the wallet, overall score 0.
+
+### E — backpack
+
+| Role | Description | Image |
+|------|-------------|-------|
+| Lost | Red backpack with a laptop sleeve and a water bottle pocket. Lost at the main bus stop. | `lost_red_backpack.png` |
+| Found | Red bag found at the bus stop, looks like a student backpack. | `found_red_bag.png` |
+
+### F — green bottle plus far distractor
+
+| Role | Description | Image |
+|------|-------------|-------|
+| Lost | Dark green metal water bottle covered in environmental stickers. Lost by the Vrijthof bicycle racks. | `lost_green_bottle.png` |
+| Found | Green reusable metal bottle covered with travel stickers, found beside the Vrijthof bike parking. | `found_green_bottle.png` |
+| Found (far) | Plain dark green insulated bottle with a black cap, found on a path in Amsterdam. | `found_green_bottle_far.png` |
+
+### G — glasses
+
+| Role | Description | Image |
+|------|-------------|-------|
+| Lost | Black rectangular prescription glasses with a blue hard case, lost in a university library study room. | `lost_black_glasses.png` |
+| Found | Black rectangular glasses and a dark blue case found under a desk in the university library. | `found_black_glasses.png` |
+
+### H — earbuds case
+
+| Role | Description | Image |
+|------|-------------|-------|
+| Lost | Heavily scratched white wireless-earbuds charging case, lost near the main bus stop. | `lost_white_earbuds.png` |
+| Found | Dirty white wireless-earbuds charging case found beside the bus-stop footpath. | `found_white_earbuds.png` |
 
 ---
 
-## Scenario E — backpack / bag
+## Photo sources
 
-| Role | Description (copy) | Image |
-|------|--------------------|-------|
-| **Lost** | Red backpack with a laptop sleeve and a water bottle pocket. Lost at the main bus stop. | `lost_red_backpack.png` |
-| **Found** | Red bag found at the bus stop, looks like a student backpack. | `found_red_bag.png` |
-
----
-
-## Scenario F — green bottle match + far distractor
-
-| Role | Description (copy) | Image |
-|------|--------------------|-------|
-| **Lost** | Dark green metal water bottle covered in environmental stickers. Lost by the Vrijthof bicycle racks. | `lost_green_bottle.png` |
-| **Found** | Green reusable metal bottle covered with travel stickers, found beside the Vrijthof bike parking. | `found_green_bottle.png` |
-| **Found distractor** | Plain dark green insulated bottle with a black cap, found on a path in Amsterdam. | `found_green_bottle_far.png` |
-
-The strong pair is about 20 metres apart and one hour apart. The distractor is in
-Amsterdam and 48 hours later, so geo/time should reduce its score even though the
-category and colour are similar.
-
----
-
-## Scenario G — glasses match
-
-| Role | Description (copy) | Image |
-|------|--------------------|-------|
-| **Lost** | Black rectangular prescription glasses with a blue hard case, lost in a university library study room. | `lost_black_glasses.png` |
-| **Found** | Black rectangular glasses and a dark blue case found under a desk in the university library. | `found_black_glasses.png` |
-
-The reports are in the same library area and one hour apart.
-
----
-
-## Scenario H — earbuds-case match
-
-| Role | Description (copy) | Image |
-|------|--------------------|-------|
-| **Lost** | Heavily scratched white wireless-earbuds charging case, lost near the main bus stop. | `lost_white_earbuds.png` |
-| **Found** | Dirty white wireless-earbuds charging case found beside the bus-stop footpath. | `found_white_earbuds.png` |
-
-The reports are at the same bus stop and one hour apart.
-
----
-
-## Online photo sources for scenarios F–H
-
-These are externally hosted user/listing photos for demo use; redistribution rights
-have not been verified.
+Externally hosted user or listing photos used for demo purposes only; redistribution
+rights have not been verified.
 
 - `lost_green_bottle.png`: CustomStickers.com blog photo
 - `found_green_bottle.png`: Mercado Libre listing photo
@@ -118,17 +110,11 @@ have not been verified.
 
 ---
 
-## Quick demo script
-
-1. Submit **Lost** from Scenario A (description + `lost_black_wallet.png`).
-2. Submit **Found** from A, B, C, and D (each with its image).
-3. Open **Matches**, select the lost wallet.
-4. Check ranking: A first, B mid, phone last; keys should not beat the dark wallet.
-5. Reload demo data to add the backpack, bottle, glasses, and earbuds reports.
-6. Confirm each near pair ranks above the far bottle distractor.
-
-For offline/CI without model downloads:
+## Resetting the demo
 
 ```bash
-LOST_FOUND_MOCK_ML=1 streamlit run app.py
+python -m scripts.seed_demo_db          # wipe data/lost_found.sqlite and data/uploads, reseed
 ```
+
+Or use "Reload demo" on the Account page when the API runs with `LOST_FOUND_ALLOW_DEMO_RESET=1`.
+For offline runs without model downloads start the API with `LOST_FOUND_MOCK_ML=1`.

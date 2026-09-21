@@ -15,6 +15,7 @@ from api.serializers import user_public
 from database.repository import SQLiteRepository
 from models.schemas import User
 from services.auth import hash_password, verify_password
+from services.demo_seed import DEMO_ACCOUNTS
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -79,3 +80,19 @@ def logout(request: Request) -> dict:
 @router.get("/me")
 def me(user: User = Depends(get_current_user)) -> dict:
     return {"user": user_public(user)}
+
+
+@router.get("/demo-accounts")
+def demo_accounts() -> dict:
+    """One-tap login personas; the password for every account is `demo`."""
+    return {
+        "accounts": [
+            {
+                "name": account.display_name,
+                "email": account.email,
+                "avatar": account.avatar,
+                "summary": account.summary,
+            }
+            for account in DEMO_ACCOUNTS
+        ]
+    }

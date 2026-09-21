@@ -41,8 +41,7 @@ def snapshot() -> dict:
         "status": "ok",
         "mock_ml": use_mock_ml(),
         "device": inference_device(),
-        # services.ml_runtime.image_backend() already folds in mock mode, the
-        # LOST_FOUND_IMAGE_BACKEND override, and the automatic CLIP fallback.
+        # "mock" or "dino_lightglue"; see services.ml_runtime.image_backend().
         "image_backend": image_backend(),
         "models": models,
     }
@@ -67,13 +66,10 @@ def _run_warmup() -> None:
             logger.exception("Text model warmup failed")
             _set_many({"classifier": "failed", "text": "failed"})
 
-        if image_backend() == "clip":
-            # CLIP was forced or the ALIKED/LightGlue stack is unavailable;
-            # warmup_text_models already loaded CLIP, so the vision models stay idle.
-            return
-
         # Same lru_cached loaders services.image_matching uses, so warmup primes
-        # the exact objects the first real ranking request will hit.
+        # the exact objects the first real ranking request will hit. A failed
+        # loader leaves that model "failed"; photo scores then come back as
+        # None with an image_error and ranking continues on text/place/time.
         for key, loader in (
             ("dino", _try_load_dino),
             ("features", feature_matcher_stack),

@@ -11,10 +11,8 @@ logger = logging.getLogger(__name__)
 
 CLASSIFIER_MODEL_ID = "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
 TEXT_EMBEDDING_MODEL_ID = "BAAI/bge-small-en-v1.5"
-IMAGE_EMBEDDING_MODEL_ID = "clip-ViT-B-32"
 DINO_MODEL_ID = "facebook/dinov2-small"
 
-_BACKEND_CLIP = "clip"
 _BACKEND_DINO = "dino_lightglue"
 _BACKEND_MOCK = "mock"
 
@@ -45,9 +43,17 @@ def feature_device() -> str:
 
 
 def _forced_image_backend() -> str | None:
+    """LOST_FOUND_IMAGE_BACKEND only accepts dino_lightglue; anything else is ignored."""
     raw = os.getenv("LOST_FOUND_IMAGE_BACKEND", "").strip().lower()
-    if raw in {_BACKEND_CLIP, _BACKEND_DINO}:
+    if not raw:
+        return None
+    if raw == _BACKEND_DINO:
         return raw
+    logger.warning(
+        "Unknown LOST_FOUND_IMAGE_BACKEND=%r; only %r is supported (set LOST_FOUND_MOCK_ML=1 for mock)",
+        raw,
+        _BACKEND_DINO,
+    )
     return None
 
 
@@ -117,23 +123,20 @@ def vision_stack_available() -> bool:
     """True when DINOv2 shortlist + local-feature re-rank can be attempted."""
     if use_mock_ml():
         return False
-    if _forced_image_backend() == _BACKEND_CLIP:
-        return False
     return _kornia_feature_stack() is not None
 
 
 def image_backend() -> str:
-    """Active photo backend: mock, dino_lightglue, or clip."""
+    """Active photo backend: mock or dino_lightglue.
+
+    There is no secondary photo model. When the vision stack cannot load, photo
+    scores come back as None with an image_error and ranking continues on
+    description, place, and time.
+    """
     if use_mock_ml():
         return _BACKEND_MOCK
-    forced = _forced_image_backend()
-    if forced == _BACKEND_CLIP:
-        return _BACKEND_CLIP
-    if forced == _BACKEND_DINO or forced is None:
-        if vision_stack_available():
-            return _BACKEND_DINO
-        return _BACKEND_CLIP
-    return _BACKEND_CLIP
+    _forced_image_backend()  # only validates / warns about the env value
+    return _BACKEND_DINO
 
 
 @lru_cache(maxsize=1)
@@ -153,13 +156,6 @@ def text_embedding_model():
     from sentence_transformers import SentenceTransformer
 
     return SentenceTransformer(TEXT_EMBEDDING_MODEL_ID, device=inference_device())
-
-
-@lru_cache(maxsize=1)
-def image_embedding_model():
-    from sentence_transformers import SentenceTransformer
-
-    return SentenceTransformer(IMAGE_EMBEDDING_MODEL_ID, device=inference_device())
 
 
 @lru_cache(maxsize=1)
@@ -209,18 +205,11 @@ def warmup_text_models() -> None:
         normalize_embeddings=True,
         convert_to_numpy=True,
     )
-    try:
-        image_embedding_model()
-    except Exception:
-        logger.exception("CLIP image model failed to load during warmup")
 
 
 def warmup_vision_models() -> None:
-    """Load DINOv2, rembg, and ALIKED/LightGlue (or leave CLIP as fallback)."""
+    """Load DINOv2, rembg, and ALIKED/LightGlue."""
     if use_mock_ml():
-        return
-    if image_backend() == _BACKEND_CLIP:
-        image_embedding_model()
         return
     dino_processor()
     dino_model()
