@@ -51,7 +51,11 @@ def weighted_overall(
     image_score: float | None,
     category_score: float | None = None,
 ) -> float:
-    """Weighted blend before gates. Category is a hard gate, not part of the blend."""
+    """Weighted blend before gates. Category is a hard gate, not part of the blend.
+
+    Missing photos (`image_score is None`) are left out and the remaining weights
+    are renormalized, so no picture is never treated as a 0% photo score.
+    """
     del category_score  # kept in signature for call-site compatibility
     parts: list[tuple[float, float]] = [
         (text_score, _WEIGHT_TEXT),

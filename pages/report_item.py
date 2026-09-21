@@ -3,8 +3,6 @@
 from datetime import date, datetime, time
 from pathlib import Path
 from uuid import uuid4
-import shutil
-
 import streamlit as st
 
 import page_defs
@@ -14,6 +12,7 @@ from pages.account import current_user
 from samples.presets import PRESETS
 from services.classifier import ReportClassifier
 from utils.config import UPLOAD_DIR, ensure_runtime_directories
+from utils.images import save_prepared_image
 from utils.map_pin import pins, render_location_map, render_pin_details, replace_pins
 
 REPORT_PINS_KEY = "report_location_pins"
@@ -85,9 +84,7 @@ def _save_uploads(report_id: str, images: list) -> tuple[str, ...]:
     folder.mkdir(parents=True, exist_ok=True)
     saved: list[str] = []
     for index, uploaded in enumerate(images):
-        suffix = Path(uploaded.name).suffix.lower() or ".jpg"
-        destination = folder / f"{index}{suffix}"
-        destination.write_bytes(uploaded.getvalue())
+        destination = save_prepared_image(uploaded.getvalue(), folder / f"{index}.jpg")
         saved.append(str(destination))
     return tuple(saved)
 
@@ -102,8 +99,7 @@ def _attach_sample_image(report_id: str) -> tuple[str, ...]:
     ensure_runtime_directories()
     folder = UPLOAD_DIR / report_id
     folder.mkdir(parents=True, exist_ok=True)
-    destination = folder / f"0{source.suffix.lower() or '.png'}"
-    shutil.copy2(source, destination)
+    destination = save_prepared_image(source, folder / "0.jpg")
     return (str(destination),)
 
 

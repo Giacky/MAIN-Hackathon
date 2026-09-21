@@ -140,6 +140,25 @@ class ImageMatchingTests(unittest.TestCase):
         self.assertEqual(score, 0.5)
 
 
+class ImagePrepTests(unittest.TestCase):
+    def test_center_crop_resizes_to_clip_square(self) -> None:
+        from PIL import Image
+
+        from utils.images import CLIP_IMAGE_SIZE, prepare_clip_image, save_prepared_image
+
+        wide = Image.new("RGB", (640, 240), color=(20, 80, 160))
+        prepared = prepare_clip_image(wide)
+        self.assertEqual(prepared.size, (CLIP_IMAGE_SIZE, CLIP_IMAGE_SIZE))
+
+        with TemporaryDirectory() as directory:
+            source = Path(directory) / "wide.png"
+            wide.save(source)
+            saved = save_prepared_image(source, Path(directory) / "out.png")
+            with Image.open(saved) as loaded:
+                self.assertEqual(loaded.size, (CLIP_IMAGE_SIZE, CLIP_IMAGE_SIZE))
+                self.assertEqual(saved.suffix, ".jpg")
+
+
 class WeightingTests(unittest.TestCase):
     def test_text_dominates_equal_geo_time(self) -> None:
         high_text = weighted_overall(0.9, 1.0, 1.0, None, None)
@@ -158,6 +177,15 @@ class WeightingTests(unittest.TestCase):
     def test_same_category_strong_text_passes(self) -> None:
         blended = weighted_overall(0.8, 1.0, 0.9, 0.7, None)
         self.assertEqual(apply_match_gates(0.8, 1.0, blended), blended)
+
+    def test_missing_image_is_not_scored_as_zero(self) -> None:
+        no_photo = weighted_overall(0.9, 0.5, 0.5, None)
+        zero_photo = weighted_overall(0.9, 0.5, 0.5, 0.0)
+        with_photo = weighted_overall(0.9, 0.5, 0.5, 0.9)
+        self.assertGreater(no_photo, zero_photo)
+        self.assertAlmostEqual(no_photo, (0.9 * 0.60 + 0.5 * 0.08 + 0.5 * 0.04) / 0.72)
+        self.assertGreater(no_photo, 0.8)
+        self.assertGreater(with_photo, zero_photo)
 
 
 class GateRankingTests(unittest.TestCase):

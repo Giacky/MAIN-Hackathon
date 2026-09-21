@@ -47,8 +47,10 @@ class ImageMatcher:
 
         from PIL import Image
 
+        from utils.images import prepare_clip_image
+
         with Image.open(image_path) as image:
-            rgb = image.convert("RGB")
+            rgb = prepare_clip_image(image)
             vector = image_embedding_model().encode(
                 rgb,
                 normalize_embeddings=True,

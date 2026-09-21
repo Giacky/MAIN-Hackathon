@@ -87,7 +87,7 @@ def render_match_card(
         if match.image_score is not None:
             _similarity_row("Photos", match.image_score, "How similar the pictures are")
         else:
-            _similarity_row("Photos", None, "Needs a photo on both reports")
+            st.caption("Photos not counted — no picture on one or both reports.")
         if match.category_score is not None:
             _similarity_row(
                 "Category",
@@ -103,6 +103,11 @@ def render_match_card(
         reason = gate_reason(match.text_score, match.category_score)
         if reason:
             st.warning(f"Rejected: {reason}.")
+        elif match.image_score is None:
+            st.caption(
+                f"Overall uses text, location, and time only "
+                f"(text must be at least {TEXT_SCORE_FLOOR:.0%}). Photos did not lower this score."
+            )
         else:
             st.caption(
                 f"Blend of text, photos, location, and time "
