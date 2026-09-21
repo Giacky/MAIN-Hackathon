@@ -11,7 +11,11 @@ from models.schemas import Report, ReportType
 from services.classifier import ReportClassifier
 from services.geo_matching import GeoMatcher
 from services.image_matching import ImageMatcher
-from services.matching_engine import MatchingEngine
+from services.matching_engine import (
+    MatchingEngine,
+    apply_match_gates,
+    weighted_overall,
+)
 from services.time_matching import TimeMatcher
 
 
@@ -111,6 +115,52 @@ class ImageMatchingTests(unittest.TestCase):
             found_path.write_bytes(b"fake")
             score = ImageMatcher().compare([str(lost_path)], [str(found_path)])
         self.assertEqual(score, 0.5)
+
+
+class WeightingTests(unittest.TestCase):
+    def test_text_dominates_equal_geo_time(self) -> None:
+        high_text = weighted_overall(0.9, 1.0, 1.0, None, None)
+        low_text = weighted_overall(0.2, 1.0, 1.0, None, None)
+        self.assertGreater(high_text, low_text)
+        self.assertGreater(high_text - low_text, 0.3)
+
+    def test_category_mismatch_is_hard_gated(self) -> None:
+        blended = weighted_overall(0.9, 1.0, 1.0, 0.9, None)
+        self.assertEqual(apply_match_gates(0.9, 0.0, blended), 0.0)
+
+    def test_weak_text_is_hard_gated(self) -> None:
+        blended = weighted_overall(0.2, 1.0, 1.0, 0.9, None)
+        self.assertEqual(apply_match_gates(0.2, 1.0, blended), 0.0)
+
+    def test_same_category_strong_text_passes(self) -> None:
+        blended = weighted_overall(0.8, 1.0, 0.9, 0.7, None)
+        self.assertEqual(apply_match_gates(0.8, 1.0, blended), blended)
+
+
+class GateRankingTests(unittest.TestCase):
+    def test_cross_category_ranks_at_zero(self) -> None:
+        lost = Report(
+            report_type=ReportType.LOST,
+            description="black wallet",
+            category="wallet",
+        )
+        founds = [
+            Report(
+                report_type=ReportType.FOUND,
+                description="black wallet near library",
+                category="wallet",
+            ),
+            Report(
+                report_type=ReportType.FOUND,
+                description="silver keys with blue fob",
+                category="keys",
+            ),
+        ]
+        matches = MatchingEngine().rank_matches(lost, founds)
+        by_id = {match.found_report_id: match for match in matches}
+        self.assertGreater(by_id[founds[0].id].overall_score, 0.0)
+        self.assertEqual(by_id[founds[1].id].overall_score, 0.0)
+        self.assertEqual(by_id[founds[1].id].category_score, 0.0)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from pathlib import Path
 import streamlit as st
 
 from models.schemas import MatchResult, Report
+from services.matching_engine import TEXT_SCORE_FLOOR, gate_reason
 
 
 def _percent(score: float) -> str:
@@ -61,6 +62,8 @@ def render_match_card(
             st.markdown("**Lost**")
             if lost_report:
                 st.write(lost_report.description)
+                if lost_report.category:
+                    st.caption(f"Category: {lost_report.category}")
                 _show_image(lost_report.image_paths, "Lost")
             else:
                 st.caption(f"id {match.lost_report_id[:8]}")
@@ -69,49 +72,64 @@ def render_match_card(
             st.markdown("**Found (candidate)**")
             if found_report:
                 st.write(found_report.description)
+                if found_report.category:
+                    st.caption(f"Category: {found_report.category}")
                 _show_image(found_report.image_paths, "Found")
             else:
                 st.caption(f"id {match.found_report_id[:8]}")
 
         st.markdown("**Component similarities**")
         _similarity_row(
-            "Text (BGE)",
+            "Text (BGE) · 60%",
             match.text_score,
-            "Description embedding cosine similarity",
+            "Description embedding cosine similarity (primary signal)",
         )
         if match.image_score is not None:
             _similarity_row(
-                "Image (CLIP)",
+                "Image (CLIP) · 28%",
                 match.image_score,
                 "Photo embedding cosine similarity (max pairwise)",
             )
         else:
             _similarity_row(
-                "Image (CLIP)",
+                "Image (CLIP) · 28%",
                 None,
-                "Not used — need saved photos on both lost and found",
+                "Not used — need saved photos on both sides (weight redistributed)",
             )
-        distance_note = (
-            f"Haversine vs search radius"
-            + (
-                f" · ≈ {match.distance_meters:.0f} m apart"
-                if match.distance_meters is not None
-                else ""
+        if match.category_score is not None:
+            _similarity_row(
+                "Category (gate)",
+                match.category_score,
+                "Hard gate: different category → overall 0%",
             )
+        else:
+            _similarity_row(
+                "Category (gate)",
+                None,
+                "No category on both sides — gate skipped",
+            )
+        distance_note = "Haversine vs search radius (tie-breaker only)" + (
+            f" · ≈ {match.distance_meters:.0f} m apart"
+            if match.distance_meters is not None
+            else ""
         )
-        _similarity_row("Location", match.geo_score, distance_note)
+        _similarity_row("Location · 8%", match.geo_score, distance_note)
         _similarity_row(
-            "Time",
+            "Time · 4%",
             match.time_score,
-            "Event-time proximity (48h decay)",
+            "Event-time proximity (tie-breaker only)",
         )
 
-        active = ["text", "location", "time"]
-        if match.image_score is not None:
-            active.append("image")
-        st.info(
-            f"Overall **{_percent(match.overall_score)}** = average of "
-            f"{', '.join(active)} "
-            f"({len(active)} components)."
-        )
+        reason = gate_reason(match.text_score, match.category_score)
+        if reason:
+            st.warning(
+                f"Overall **{_percent(match.overall_score)}** — rejected by {reason}. "
+                "Location/time were not allowed to rescue this pair."
+            )
+        else:
+            st.info(
+                f"Overall **{_percent(match.overall_score)}** = weighted blend "
+                f"(text 60%, image 28%, location 8%, time 4%) after gates "
+                f"(same category if labeled; text ≥ {TEXT_SCORE_FLOOR:.0%})."
+            )
         st.button("View recovery options", key=f"recover-{match.found_report_id}")

@@ -58,6 +58,7 @@ class MatchResult:
     geo_score: float
     time_score: float
     image_score: float | None = None
+    category_score: float | None = None
     distance_meters: float | None = None
 
 

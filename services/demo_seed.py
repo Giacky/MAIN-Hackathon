@@ -18,6 +18,16 @@ from utils.config import DATABASE_PATH, UPLOAD_DIR, ensure_runtime_directories
 DEMO_LOST = ("lost_wallet", "lost_keys")
 DEMO_FOUND = ("found_wallet", "found_brown", "found_keys", "found_phone")
 
+# Categories used by matching when DeBERTa hasn't labeled the report yet.
+PRESET_CATEGORIES = {
+    "lost_wallet": "wallet",
+    "found_wallet": "wallet",
+    "found_brown": "wallet",
+    "lost_keys": "keys",
+    "found_keys": "keys",
+    "found_phone": "phone",
+}
+
 
 def clear_database_and_uploads() -> None:
     ensure_runtime_directories()
@@ -34,6 +44,7 @@ def _seed_one(repository: SQLiteRepository, preset_id: str, hours_offset: int) -
     report = Report(
         report_type=ReportType(preset["report_type"]),
         description=preset["description"],
+        category=PRESET_CATEGORIES.get(preset_id),
         event_time=datetime.now(timezone.utc) + timedelta(hours=hours_offset),
         latitude=float(preset["latitude"]),
         longitude=float(preset["longitude"]),
