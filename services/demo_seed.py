@@ -190,8 +190,16 @@ def _report_from_preset(
     return report
 
 
-def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteRepository:
-    """Create dummy testers and sample reports if they are missing."""
+def ensure_demo_data(
+    repository: SQLiteRepository | None = None,
+    *,
+    prune_extras: bool = True,
+) -> SQLiteRepository:
+    """Create dummy testers and sample reports if they are missing.
+
+    When prune_extras is True (Streamlit default), non-demo reports are deleted.
+    FastAPI startup should pass prune_extras=False so user-created reports survive restarts.
+    """
     ensure_runtime_directories()
     repository = repository or SQLiteRepository()
     alex, sam, mia = (
@@ -259,7 +267,8 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
     )
     for report in specs:
         _ensure_report(repository, report)
-    _prune_extra_reports(repository)
+    if prune_extras:
+        _prune_extra_reports(repository)
     return repository
 
 
