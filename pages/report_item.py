@@ -6,6 +6,7 @@ import streamlit as st
 
 from database.repository import SQLiteRepository
 from models.schemas import Report, ReportType
+from pages.account import current_user
 
 
 @st.cache_resource
@@ -16,7 +17,15 @@ def _repository() -> SQLiteRepository:
 def render() -> None:
     """Render the input shape expected by services and persistence."""
     st.title("Report an item")
-    st.caption("This form demonstrates the shared Report contract.")
+    user = current_user()
+    if user is None:
+        st.warning("Log in first so this report stays on your account.")
+        if st.button("Go to Account", type="primary"):
+            st.session_state["open_account"] = True
+            st.rerun()
+        return
+
+    st.caption(f"Reporting as {user.display_name}. This item will show up in your matches.")
 
     initial_type = st.session_state.get("report_type", ReportType.LOST.value)
     initial_index = 0 if initial_type == ReportType.LOST.value else 1
@@ -50,7 +59,9 @@ def render() -> None:
         )
 
         st.markdown("**How can the other person reach you? (optional)**")
-        contact_email = st.text_input("Email", placeholder="you@example.com")
+        contact_email = st.text_input(
+            "Email", placeholder="you@example.com", value=user.email
+        )
         contact_phone = st.text_input("Phone", placeholder="+31 6 1234 5678")
         if report_type_value == "Found":
             prefer_anonymous = st.checkbox(
@@ -82,6 +93,7 @@ def render() -> None:
             contact_email=contact_email.strip() or None,
             contact_phone=contact_phone.strip() or None,
             prefer_anonymous=prefer_anonymous,
+            user_id=user.id,
         )
         _repository().add_report(report)
         st.success(f"Report {report.id[:8]} saved to the local skeleton database.")
@@ -105,5 +117,6 @@ def render() -> None:
                     "contact_email": report.contact_email,
                     "contact_phone": report.contact_phone,
                     "prefer_anonymous": report.prefer_anonymous,
+                    "user_id": report.user_id,
                 }
             )

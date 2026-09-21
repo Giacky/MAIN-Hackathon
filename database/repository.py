@@ -10,6 +10,8 @@ from database.models import (
     row_to_chat_message,
     row_to_meetup,
     row_to_report,
+    row_to_user,
+    user_to_row,
 )
 from models.schemas import (
     ChatMessage,
@@ -19,6 +21,7 @@ from models.schemas import (
     MeetupStatus,
     Report,
     ReportStatus,
+    User,
 )
 from utils.config import DATABASE_PATH
 
@@ -50,11 +53,11 @@ class SQLiteRepository:
                 INSERT OR REPLACE INTO reports (
                     id, report_type, description, category, urgency, created_at,
                     event_time, latitude, longitude, radius_meters, image_paths, status,
-                    contact_email, contact_phone, prefer_anonymous
+                    contact_email, contact_phone, prefer_anonymous, user_id
                 ) VALUES (
                     :id, :report_type, :description, :category, :urgency, :created_at,
                     :event_time, :latitude, :longitude, :radius_meters, :image_paths, :status,
-                    :contact_email, :contact_phone, :prefer_anonymous
+                    :contact_email, :contact_phone, :prefer_anonymous, :user_id
                 )
                 """,
                 values,
@@ -72,6 +75,18 @@ class SQLiteRepository:
         with connection(self.database_path) as database:
             rows = database.execute(
                 "SELECT * FROM reports ORDER BY created_at DESC"
+            ).fetchall()
+        return [row_to_report(row) for row in rows]
+
+    def list_reports_for_user(self, user_id: str) -> list[Report]:
+        with connection(self.database_path) as database:
+            rows = database.execute(
+                """
+                SELECT * FROM reports
+                WHERE user_id = ?
+                ORDER BY created_at DESC
+                """,
+                (user_id,),
             ).fetchall()
         return [row_to_report(row) for row in rows]
 
@@ -173,3 +188,29 @@ class SQLiteRepository:
                 (status.value, match_id),
             )
         return cursor.rowcount > 0
+
+    def add_user(self, user: User) -> User:
+        values = user_to_row(user)
+        with connection(self.database_path) as database:
+            database.execute(
+                """
+                INSERT INTO users (id, email, display_name, password_hash, created_at)
+                VALUES (:id, :email, :display_name, :password_hash, :created_at)
+                """,
+                values,
+            )
+        return user
+
+    def get_user(self, user_id: str) -> User | None:
+        with connection(self.database_path) as database:
+            row = database.execute(
+                "SELECT * FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        return row_to_user(row) if row else None
+
+    def get_user_by_email(self, email: str) -> User | None:
+        with connection(self.database_path) as database:
+            row = database.execute(
+                "SELECT * FROM users WHERE email = ?", (email.strip().lower(),)
+            ).fetchone()
+        return row_to_user(row) if row else None

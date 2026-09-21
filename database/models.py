@@ -12,6 +12,7 @@ from models.schemas import (
     Report,
     ReportStatus,
     ReportType,
+    User,
 )
 
 
@@ -36,6 +37,7 @@ def report_to_row(report: Report) -> dict[str, Any]:
         "contact_email": report.contact_email,
         "contact_phone": report.contact_phone,
         "prefer_anonymous": int(report.prefer_anonymous),
+        "user_id": report.user_id,
     }
 
 
@@ -58,6 +60,7 @@ def row_to_report(row: sqlite3.Row) -> Report:
         contact_email=_row_value(row, "contact_email"),
         contact_phone=_row_value(row, "contact_phone"),
         prefer_anonymous=bool(_row_value(row, "prefer_anonymous", 0)),
+        user_id=_row_value(row, "user_id"),
     )
 
 
@@ -91,5 +94,25 @@ def row_to_meetup(row: sqlite3.Row) -> Meetup:
         location_name=row["location_name"],
         meeting_time=datetime.fromisoformat(row["meeting_time"]),
         status=MeetupStatus(row["status"]),
+        created_at=datetime.fromisoformat(row["created_at"]),
+    )
+
+
+def user_to_row(user: User) -> dict[str, Any]:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "display_name": user.display_name,
+        "password_hash": user.password_hash,
+        "created_at": user.created_at.isoformat(),
+    }
+
+
+def row_to_user(row: sqlite3.Row) -> User:
+    return User(
+        id=row["id"],
+        email=row["email"],
+        display_name=row["display_name"],
+        password_hash=row["password_hash"],
         created_at=datetime.fromisoformat(row["created_at"]),
     )

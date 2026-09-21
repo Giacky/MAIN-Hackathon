@@ -6,10 +6,13 @@ import unittest
 from database.repository import SQLiteRepository
 from models.schemas import Meetup, MeetupStatus, Report, ReportType, match_thread_id
 from services.coordination import (
+    DEMO_FINDER_USER_ID,
+    DEMO_MIA_USER_ID,
     can_respond_to_meetup,
     contact_for_viewer,
     display_name_for_sender,
     ensure_demo_handoff_reports,
+    role_for_user,
 )
 
 
@@ -77,9 +80,26 @@ class CoordinationTests(unittest.TestCase):
             repository = SQLiteRepository(Path(directory) / "test.sqlite")
             ensure_demo_handoff_reports(repository)
             finder = repository.get_report("found-demo-456")
+            hotel = repository.get_report("found-demo-789")
 
         self.assertTrue(finder.prefer_anonymous)
+        self.assertEqual(finder.user_id, DEMO_FINDER_USER_ID)
+        self.assertEqual(hotel.user_id, DEMO_MIA_USER_ID)
+        self.assertFalse(hotel.prefer_anonymous)
         self.assertEqual(display_name_for_sender("found", "lost"), "Finder")
+
+    def test_logged_in_owner_gets_lost_role(self) -> None:
+        lost = Report(report_type=ReportType.LOST, description="x", user_id="u-owner")
+        found = Report(report_type=ReportType.FOUND, description="y", user_id="u-finder")
+        self.assertEqual(role_for_user("u-owner", lost, found), "lost")
+        self.assertEqual(role_for_user("u-finder", lost, found), "found")
+        self.assertIsNone(role_for_user("someone-else", lost, found))
+        self.assertEqual(
+            role_for_user(None, lost, found, email="owner@demo.local"),
+            None,
+        )
+        lost.contact_email = "alex@demo.local"
+        self.assertEqual(role_for_user(None, lost, found, email="alex@demo.local"), "lost")
 
 
 if __name__ == "__main__":

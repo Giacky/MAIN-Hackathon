@@ -30,6 +30,14 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
     with connection(database_path) as database:
         database.executescript(
             """
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT NOT NULL UNIQUE,
+                display_name TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS reports (
                 id TEXT PRIMARY KEY,
                 report_type TEXT NOT NULL,
@@ -93,6 +101,7 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 "contact_email": "TEXT",
                 "contact_phone": "TEXT",
                 "prefer_anonymous": "INTEGER NOT NULL DEFAULT 0",
+                "user_id": "TEXT",
             },
         )
 

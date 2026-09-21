@@ -3,6 +3,7 @@
 import streamlit as st
 
 import page_defs
+from pages.account import current_user
 from pages.map_view import render as render_map
 from pages.matches import render as render_matches
 
@@ -18,6 +19,12 @@ def render_home() -> None:
         "Report a lost or found item, then let matching services rank likely pairs "
         "using descriptions, place, time, and eventually images."
     )
+
+    user = current_user()
+    if user:
+        st.caption(f"Signed in as {user.display_name}. Your reports stay attached to this account.")
+    else:
+        st.caption("Create an account so your lost and found items stay with you when you arrange pickup.")
 
     lost_column, found_column = st.columns(2)
     if lost_column.button("I lost something", type="primary", use_container_width=True):
@@ -48,6 +55,7 @@ navigation = st.navigation(
         matches_page,
         map_page,
         page_defs.recovery_page,
+        page_defs.account_page,
     ],
     position="sidebar",
 )
@@ -59,4 +67,6 @@ if st.session_state.pop("open_recovery", False):
             "found": st.session_state.get("recovery_found_id", ""),
         },
     )
+if st.session_state.pop("open_account", False):
+    st.switch_page(page_defs.account_page)
 navigation.run()

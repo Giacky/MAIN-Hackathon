@@ -12,6 +12,7 @@ from models.schemas import (
     Report,
     match_thread_id,
 )
+from pages.account import current_user
 from services.coordination import (
     DEMO_FOUND_LIBRARY_ID,
     DEMO_LOST_ID,
@@ -20,6 +21,7 @@ from services.coordination import (
     display_name_for_sender,
     ensure_demo_handoff_reports,
     is_own_report,
+    role_for_user,
 )
 
 MEETUP_PRESETS = [
@@ -161,20 +163,21 @@ def _render_notes(match_id: str, role: str) -> None:
         st.rerun()
 
 
+def _query_id(name: str, session_key: str, fallback: str) -> str:
+    value = st.query_params.get(name)
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else None
+    if value:
+        return str(value)
+    return st.session_state.get(session_key) or fallback
+
+
 def render() -> None:
     repository = _repository()
     ensure_demo_handoff_reports(repository)
 
-    lost_id = (
-        st.query_params.get("lost")
-        or st.session_state.get("recovery_lost_id")
-        or DEMO_LOST_ID
-    )
-    found_id = (
-        st.query_params.get("found")
-        or st.session_state.get("recovery_found_id")
-        or DEMO_FOUND_LIBRARY_ID
-    )
+    lost_id = _query_id("lost", "recovery_lost_id", DEMO_LOST_ID)
+    found_id = _query_id("found", "recovery_found_id", DEMO_FOUND_LIBRARY_ID)
     st.session_state["recovery_lost_id"] = lost_id
     st.session_state["recovery_found_id"] = found_id
 
@@ -191,13 +194,33 @@ def render() -> None:
         "still agree on a public meetup."
     )
 
-    role_label = st.radio(
-        "I am",
-        ["the person who lost this item", "the person who found this item"],
-        horizontal=True,
-        key="recovery_role_label",
+    user = current_user()
+    inferred_role = role_for_user(
+        user.id if user else None,
+        lost,
+        found,
+        email=user.email if user else None,
     )
-    role = "lost" if role_label.startswith("the person who lost") else "found"
+    if user and inferred_role:
+        role = inferred_role
+        side = "lost this item" if role == "lost" else "found this item"
+        st.info(f"Signed in as **{user.display_name}**. You are the person who {side}.")
+    elif user:
+        st.warning(
+            "This match is not linked to your account, so you cannot switch into "
+            "the other person's role."
+        )
+        st.caption("Open one of your matches from the Matches page.")
+        return
+    else:
+        st.caption("Log in to lock this page to your own lost or found report.")
+        role_label = st.radio(
+            "I am viewing as",
+            ["the person who lost this item", "the person who found this item"],
+            horizontal=True,
+            key="recovery_role_label",
+        )
+        role = "lost" if role_label.startswith("the person who lost") else "found"
 
     st.write(f"**Lost:** {lost.description}")
     st.write(f"**Found:** {found.description}")

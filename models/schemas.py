@@ -32,6 +32,15 @@ def match_thread_id(lost_report_id: str, found_report_id: str) -> str:
 
 
 @dataclass(slots=True)
+class User:
+    email: str
+    display_name: str
+    password_hash: str = ""
+    id: str = field(default_factory=lambda: str(uuid4()))
+    created_at: datetime = field(default_factory=utc_now)
+
+
+@dataclass(slots=True)
 class Report:
     report_type: ReportType
     description: str
@@ -48,6 +57,7 @@ class Report:
     contact_email: str | None = None
     contact_phone: str | None = None
     prefer_anonymous: bool = False
+    user_id: str | None = None
 
 
 @dataclass(slots=True)
