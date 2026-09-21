@@ -7,6 +7,9 @@ import streamlit as st
 from models.schemas import Report
 from utils.locations import report_points
 
+_IMAGE_WIDTH = 140
+_GRID_COLUMNS = 2
+
 
 def _preview(text: str, limit: int = 90) -> str:
     cleaned = text.strip().replace("\n", " ")
@@ -29,7 +32,7 @@ def render_item_card(report: Report) -> None:
     with st.container(border=True):
         image = _first_image(report)
         if image:
-            st.image(image, width="stretch")
+            st.image(image, width=_IMAGE_WIDTH)
         st.subheader(heading)
         st.write(report.description)
         if report.holding_note:
@@ -51,7 +54,7 @@ def render_item_tile(report: Report, *, selected: bool, button_key: str) -> bool
             st.caption("Selected")
         image = _first_image(report)
         if image:
-            st.image(image, width="stretch")
+            st.image(image, width=_IMAGE_WIDTH)
         else:
             st.caption("No photo")
         st.markdown(f"**{heading}**")
@@ -64,3 +67,28 @@ def render_item_tile(report: Report, *, selected: bool, button_key: str) -> bool
             width="stretch",
             key=button_key,
         )
+
+
+def render_report_grid(
+    reports: list[Report],
+    *,
+    selected_id: str | None,
+    button_key_prefix: str,
+) -> str | None:
+    """Render reports in a fixed 2-column grid; odd last items stay half-width.
+
+    Returns the id of a newly selected report, or None.
+    """
+    chosen: str | None = None
+    for row_start in range(0, len(reports), _GRID_COLUMNS):
+        row = reports[row_start : row_start + _GRID_COLUMNS]
+        columns = st.columns(_GRID_COLUMNS)
+        for column, report in zip(columns, row):
+            with column:
+                if render_item_tile(
+                    report,
+                    selected=report.id == selected_id,
+                    button_key=f"{button_key_prefix}-tile-{report.id}",
+                ):
+                    chosen = report.id
+    return chosen

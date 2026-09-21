@@ -9,7 +9,7 @@ import page_defs
 from database.repository import SQLiteRepository
 from models.schemas import LocationGuess, Report, ReportType, as_utc
 from pages.account import current_user
-from utils.ui import page_nav
+from utils.ui import page_footer_nav, page_header
 from samples.presets import PRESETS
 from services.classifier import ReportClassifier
 from utils.config import UPLOAD_DIR, ensure_runtime_directories
@@ -131,7 +131,8 @@ def _render_debug_presets() -> None:
 
 def render() -> None:
     user = current_user()
-    page_nav()
+    page_header()
+    page_footer_nav(current="report")
     if user is None:
         st.title("Report an item")
         st.warning("Log in first so this report stays on your account.")
@@ -264,9 +265,5 @@ def render() -> None:
         if report.image_paths:
             st.caption(f"Saved {len(report.image_paths)} photo(s).")
         _render_classification(classification)
-        if st.button("See matches", type="primary", width="stretch"):
-            st.switch_page(page_defs.matches_page)
-        if st.button("View on map", width="stretch"):
-            st.switch_page(page_defs.map_page)
 
     _render_debug_presets()

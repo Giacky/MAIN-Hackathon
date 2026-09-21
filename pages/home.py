@@ -5,23 +5,21 @@ import streamlit as st
 import page_defs
 from pages.account import current_user
 from services.coordination import DEMO_PASSWORD
-
-
-from utils.ui import page_nav
+from utils.ui import page_footer_nav, page_header
 
 
 def render() -> None:
-    page_nav()
+    page_header()
+    page_footer_nav(current="home")
     st.title("Smart Lost & Found")
     st.caption("Report an item, see likely matches, then agree on a public pickup.")
 
     user = current_user()
     if user:
-        st.success(f"Signed in as **{user.display_name}**.")
+        st.caption(f"Signed in as **{user.display_name}**.")
     else:
-        st.info(
-            f"Log in on Account first. Demo logins Alex, Sam, and Mia all use "
-            f"password `{DEMO_PASSWORD}`."
+        st.caption(
+            f"Demo logins (Account): Alex, Sam, or Mia — password `{DEMO_PASSWORD}`."
         )
 
     if st.button("I lost something", type="primary", width="stretch"):

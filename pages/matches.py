@@ -2,7 +2,7 @@
 
 import streamlit as st
 
-from components.item_card import render_item_tile
+from components.item_card import render_report_grid
 from components.match_card import render_lost_context, render_match_card
 from database.repository import SQLiteRepository
 from models.schemas import Report, ReportType
@@ -10,7 +10,7 @@ from pages.account import current_user
 from services.demo_seed import seed_demo_reports
 from services.matching_engine import MatchingEngine
 from utils.config import DATABASE_PATH
-from utils.ui import page_nav
+from utils.ui import page_footer_nav, page_header
 
 
 def _repository() -> SQLiteRepository:
@@ -75,18 +75,14 @@ def _pick_own_report(reports: list[Report], session_key: str, heading: str) -> R
 
     st.markdown(f"**{heading}**")
     st.caption("Tap one item to rank it against other people's reports.")
-    for row_start in range(0, len(reports), 2):
-        row = reports[row_start : row_start + 2]
-        columns = st.columns(len(row))
-        for column, report in zip(columns, row):
-            with column:
-                if render_item_tile(
-                    report,
-                    selected=report.id == selected_id,
-                    button_key=f"{session_key}-tile-{report.id}",
-                ):
-                    st.session_state[session_key] = report.id
-                    st.rerun()
+    chosen = render_report_grid(
+        reports,
+        selected_id=selected_id,
+        button_key_prefix=session_key,
+    )
+    if chosen is not None:
+        st.session_state[session_key] = chosen
+        st.rerun()
 
     return next(report for report in reports if report.id == selected_id)
 
@@ -167,7 +163,8 @@ def _render_found_matches(lost_reports: list[Report], my_found: list[Report], us
 
 
 def render() -> None:
-    page_nav()
+    page_header()
+    page_footer_nav(current="matches")
     st.title("Matches")
     st.caption("Pick one of your items, then see likely matches from other people.")
 

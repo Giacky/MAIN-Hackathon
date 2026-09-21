@@ -15,8 +15,8 @@ _WEIGHT_IMAGE = 0.33
 _WEIGHT_GEO = 0.16
 _WEIGHT_TIME = 0.09
 
-# Hard gates: cross-type / weak text cannot be rescued by location/time.
-TEXT_SCORE_FLOOR = 0.50
+# Hard gate: cross-type cannot be rescued by location/time.
+# (No text-score floor — weak text can still rank via photos / place.)
 
 
 def _type_value(report: Report) -> str:
@@ -72,19 +72,17 @@ def apply_match_gates(
     category_score: float | None,
     blended_score: float,
 ) -> float:
-    """Zero out pairs that fail category or text floors."""
+    """Zero out pairs that fail the category gate."""
+    del text_score  # kept for call-site compatibility
     if category_score == 0.0:
-        return 0.0
-    if text_score < TEXT_SCORE_FLOOR:
         return 0.0
     return blended_score
 
 
 def gate_reason(text_score: float, category_score: float | None) -> str | None:
+    del text_score  # kept for call-site compatibility
     if category_score == 0.0:
         return "category mismatch (hard gate)"
-    if text_score < TEXT_SCORE_FLOOR:
-        return f"text score below floor ({TEXT_SCORE_FLOOR:.0%})"
     return None
 
 
@@ -106,7 +104,7 @@ class MatchingEngine:
     def rank_matches(
         self, lost_report: Report, found_reports: Iterable[Report]
     ) -> list[MatchResult]:
-        """Rank found reports; category mismatch / weak text are hard-gated to 0."""
+        """Rank found reports; category mismatch is hard-gated to 0."""
         if _type_value(lost_report) != ReportType.LOST.value:
             raise ValueError(
                 f"lost_report must have report_type=LOST (got {_type_value(lost_report)!r})"

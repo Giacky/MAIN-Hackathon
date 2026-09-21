@@ -15,7 +15,7 @@ from models.schemas import (
     match_thread_id,
 )
 from pages.account import current_user
-from utils.ui import page_nav
+from utils.ui import page_footer_nav, page_header
 from services.coordination import (
     can_respond_to_meetup,
     contact_for_viewer,
@@ -182,7 +182,8 @@ def _selected_pair(repository: SQLiteRepository) -> tuple[str | None, str | None
 
 
 def render() -> None:
-    page_nav(back_page=page_defs.matches_page, back_label="Back to Matches")
+    page_header(back_page=page_defs.matches_page, back_label="Back to Matches")
+    page_footer_nav(current="pickup")
     repository = _repository()
     lost_id, found_id = _selected_pair(repository)
     if not lost_id or not found_id:

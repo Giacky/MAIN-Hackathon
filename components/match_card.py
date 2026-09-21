@@ -5,19 +5,28 @@ from pathlib import Path
 import streamlit as st
 
 from models.schemas import MatchResult, Report
-from services.matching_engine import TEXT_SCORE_FLOOR, gate_reason
+from services.matching_engine import gate_reason
+
+_IMAGE_WIDTH = 160
 
 
 def _percent(score: float) -> str:
     return f"{score:.0%}"
 
 
-def _show_image(paths: tuple[str, ...], caption: str) -> None:
-    for path in paths:
-        if Path(path).is_file():
-            st.image(path, caption=caption, width="stretch")
-            return
-    st.caption("No photo")
+def _show_images(paths: tuple[str, ...], caption: str) -> None:
+    existing = [path for path in paths if Path(path).is_file()]
+    if not existing:
+        st.caption("No photo")
+        return
+    # Fixed 3-column grid so a single/odd photo does not stretch full width.
+    for row_start in range(0, len(existing), 3):
+        row = existing[row_start : row_start + 3]
+        columns = st.columns(3)
+        for column, path in zip(columns, row):
+            with column:
+                label = caption if row_start == 0 and path is row[0] else ""
+                st.image(path, caption=label, width=_IMAGE_WIDTH)
 
 
 def _similarity_row(label: str, score: float | None, detail: str) -> None:
@@ -35,7 +44,7 @@ def _similarity_row(label: str, score: float | None, detail: str) -> None:
 def render_lost_context(lost_report: Report) -> None:
     with st.container(border=True):
         st.markdown("**Matching this lost report**")
-        _show_image(lost_report.image_paths, "Lost photo")
+        _show_images(lost_report.image_paths, "Lost photo")
         st.write(lost_report.description)
         if lost_report.category:
             st.caption(f"Category: {lost_report.category}")
@@ -52,27 +61,17 @@ def render_match_card(
     with st.container(border=True):
         st.subheader(f"Overall match — {_percent(match.overall_score)}")
 
-        lost_tab, found_tab = st.tabs(["Lost", "Found"])
-        with lost_tab:
-            if lost_report:
-                _show_image(lost_report.image_paths, "Lost")
-                st.write(lost_report.description)
-                if lost_report.category:
-                    st.caption(f"Category: {lost_report.category}")
-            else:
-                st.caption(f"id {match.lost_report_id[:8]}")
-        with found_tab:
-            if found_report:
-                _show_image(found_report.image_paths, "Found")
-                st.write(found_report.description)
-                if found_report.category:
-                    st.caption(f"Category: {found_report.category}")
-                if found_report.holding_note:
-                    st.caption(f"Where it is now: {found_report.holding_note}")
-                if found_report.prefer_anonymous:
-                    st.caption("Finder is anonymous")
-            else:
-                st.caption(f"id {match.found_report_id[:8]}")
+        if found_report:
+            _show_images(found_report.image_paths, "Found")
+            st.write(found_report.description)
+            if found_report.category:
+                st.caption(f"Category: {found_report.category}")
+            if found_report.holding_note:
+                st.caption(f"Where it is now: {found_report.holding_note}")
+            if found_report.prefer_anonymous:
+                st.caption("Finder is anonymous")
+        else:
+            st.caption(f"id {match.found_report_id[:8]}")
 
         st.markdown("**Why this score**")
         _similarity_row("Text", match.text_score, "How similar the descriptions are")
@@ -99,20 +98,16 @@ def render_match_card(
             st.warning(f"Rejected: {reason}.")
         elif match.image_error:
             st.caption(
-                f"Overall uses text, location, and time only "
-                f"(text must be at least {TEXT_SCORE_FLOOR:.0%}). "
+                "Overall uses text, location, and time only. "
                 "Photos were skipped because CLIP failed."
             )
         elif match.image_score is None:
             st.caption(
-                f"Overall uses text, location, and time only "
-                f"(text must be at least {TEXT_SCORE_FLOOR:.0%}). Photos did not lower this score."
+                "Overall uses text, location, and time only. "
+                "Photos did not lower this score."
             )
         else:
-            st.caption(
-                f"Blend of text, photos, location, and time "
-                f"(text must be at least {TEXT_SCORE_FLOOR:.0%})."
-            )
+            st.caption("Blend of text, photos, location, and time.")
 
         if allow_pickup and st.button(
             "Arrange pickup",

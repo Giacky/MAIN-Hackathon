@@ -192,9 +192,9 @@ class WeightingTests(unittest.TestCase):
         blended = weighted_overall(0.9, 1.0, 1.0, 0.9, None)
         self.assertEqual(apply_match_gates(0.9, 0.0, blended), 0.0)
 
-    def test_weak_text_is_hard_gated(self) -> None:
+    def test_weak_text_is_not_hard_gated(self) -> None:
         blended = weighted_overall(0.2, 1.0, 1.0, 0.9, None)
-        self.assertEqual(apply_match_gates(0.2, 1.0, blended), 0.0)
+        self.assertEqual(apply_match_gates(0.2, 1.0, blended), blended)
 
     def test_same_category_strong_text_passes(self) -> None:
         blended = weighted_overall(0.8, 1.0, 0.9, 0.7, None)
