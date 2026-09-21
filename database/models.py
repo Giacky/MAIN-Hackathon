@@ -16,7 +16,20 @@ from models.schemas import (
     ReportStatus,
     ReportType,
     User,
+    as_utc,
+    utc_now,
 )
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return as_utc(datetime.fromisoformat(value))
+
+
+def _isoformat_utc(value: datetime | None) -> str | None:
+    aware = as_utc(value)
+    return aware.isoformat() if aware else None
 
 
 def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
@@ -44,8 +57,8 @@ def report_to_row(report: Report) -> dict[str, Any]:
         "description": report.description,
         "category": report.category,
         "urgency": report.urgency,
-        "created_at": report.created_at.isoformat(),
-        "event_time": report.event_time.isoformat() if report.event_time else None,
+        "created_at": _isoformat_utc(report.created_at),
+        "event_time": _isoformat_utc(report.event_time),
         "latitude": report.latitude,
         "longitude": report.longitude,
         "radius_meters": report.radius_meters,
@@ -77,10 +90,8 @@ def row_to_report(row: sqlite3.Row) -> Report:
         description=row["description"],
         category=row["category"],
         urgency=row["urgency"],
-        created_at=datetime.fromisoformat(row["created_at"]),
-        event_time=datetime.fromisoformat(row["event_time"])
-        if row["event_time"]
-        else None,
+        created_at=_parse_datetime(row["created_at"]) or utc_now(),
+        event_time=_parse_datetime(row["event_time"]),
         latitude=row["latitude"],
         longitude=row["longitude"],
         radius_meters=row["radius_meters"],
@@ -114,7 +125,7 @@ def row_to_chat_message(row: sqlite3.Row) -> ChatMessage:
         match_id=row["match_id"],
         sender=row["sender"],
         message=row["message"],
-        timestamp=datetime.fromisoformat(row["timestamp"]),
+        timestamp=_parse_datetime(row["timestamp"]) or utc_now(),
     )
 
 
@@ -124,9 +135,9 @@ def meetup_to_row(meetup: Meetup) -> dict[str, Any]:
         "id": meetup.id,
         "proposed_by": meetup.proposed_by,
         "location_name": meetup.location_name,
-        "meeting_time": meetup.meeting_time.isoformat(),
+        "meeting_time": _isoformat_utc(meetup.meeting_time),
         "status": meetup.status.value,
-        "created_at": meetup.created_at.isoformat(),
+        "created_at": _isoformat_utc(meetup.created_at),
     }
 
 
@@ -136,9 +147,9 @@ def row_to_meetup(row: sqlite3.Row) -> Meetup:
         id=row["id"],
         proposed_by=row["proposed_by"],
         location_name=row["location_name"],
-        meeting_time=datetime.fromisoformat(row["meeting_time"]),
+        meeting_time=_parse_datetime(row["meeting_time"]) or utc_now(),
         status=MeetupStatus(row["status"]),
-        created_at=datetime.fromisoformat(row["created_at"]),
+        created_at=_parse_datetime(row["created_at"]) or utc_now(),
     )
 
 
@@ -148,7 +159,7 @@ def user_to_row(user: User) -> dict[str, Any]:
         "email": user.email,
         "display_name": user.display_name,
         "password_hash": user.password_hash,
-        "created_at": user.created_at.isoformat(),
+        "created_at": _isoformat_utc(user.created_at),
     }
 
 
@@ -158,5 +169,5 @@ def row_to_user(row: sqlite3.Row) -> User:
         email=row["email"],
         display_name=row["display_name"],
         password_hash=row["password_hash"],
-        created_at=datetime.fromisoformat(row["created_at"]),
+        created_at=_parse_datetime(row["created_at"]) or utc_now(),
     )

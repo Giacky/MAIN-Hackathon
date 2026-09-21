@@ -27,25 +27,20 @@ def render_item_card(report: Report) -> None:
     heading = report.category or report.report_type.value.title()
     points = report_points(report)
     with st.container(border=True):
-        text_column, photo_column = st.columns([3, 1])
-        with text_column:
-            st.subheader(heading)
-            st.write(report.description)
-            if report.holding_note:
-                st.caption(f"Where it is now: {report.holding_note}")
-            details = [
-                report.report_type.value.title(),
-                report.status.value,
-            ]
-            if points:
-                details.append(f"{len(points)} location pin(s)")
-            st.caption(" · ".join(details))
-        with photo_column:
-            image = _first_image(report)
-            if image:
-                st.image(image, width="stretch")
-            else:
-                st.caption("No photo")
+        image = _first_image(report)
+        if image:
+            st.image(image, width="stretch")
+        st.subheader(heading)
+        st.write(report.description)
+        if report.holding_note:
+            st.caption(f"Where it is now: {report.holding_note}")
+        details = [
+            report.report_type.value.title(),
+            report.status.value,
+        ]
+        if points:
+            details.append(f"{len(points)} location pin(s)")
+        st.caption(" · ".join(details))
 
 
 def render_item_tile(report: Report, *, selected: bool, button_key: str) -> bool:

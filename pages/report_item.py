@@ -7,7 +7,7 @@ import streamlit as st
 
 import page_defs
 from database.repository import SQLiteRepository
-from models.schemas import LocationGuess, Report, ReportType
+from models.schemas import LocationGuess, Report, ReportType, as_utc
 from pages.account import current_user
 from samples.presets import PRESETS
 from services.classifier import ReportClassifier
@@ -107,12 +107,9 @@ def _render_classification(classification) -> None:
     st.subheader("Suggested labels")
     if classification.is_mock:
         st.caption("Placeholder labels (set `LOST_FOUND_MOCK_ML=1`).")
-    category_column, urgency_column, sensitive_column = st.columns(3)
-    category_column.metric("Category", classification.category)
-    urgency_column.metric("Urgency", classification.urgency)
-    sensitive_column.metric(
-        "Sensitive", "yes" if classification.sensitive_item else "no"
-    )
+    st.metric("Category", classification.category)
+    st.metric("Urgency", classification.urgency)
+    st.metric("Sensitive", "yes" if classification.sensitive_item else "no")
     st.info(classification.recommended_handling)
 
 
@@ -120,9 +117,9 @@ def _render_debug_presets() -> None:
     st.divider()
     with st.expander("Demo: fill a sample report", expanded=False):
         st.caption("Loads a description, photo, and map pin. Then press Submit.")
-        columns = st.columns(3)
+        columns = st.columns(2)
         for index, preset_id in enumerate(PRESETS.keys()):
-            if columns[index % 3].button(
+            if columns[index % 2].button(
                 PRESETS[preset_id]["label"],
                 key=f"preset-{preset_id}",
                 width="stretch",
@@ -188,18 +185,15 @@ def render() -> None:
 
     st.subheader("Where did this happen?")
     st.caption("Click the map to add pins. Skip this if you are not sure.")
-    map_col, detail_col = st.columns([1.7, 1], gap="large")
-    with map_col:
-        with st.container(border=True):
-            render_location_map(
-                map_key="report_page",
-                height=420,
-                session_key=REPORT_PINS_KEY,
-            )
-    with detail_col:
-        with st.container(border=True):
-            st.markdown("**Pin details**")
-            render_pin_details(session_key=REPORT_PINS_KEY)
+    with st.container(border=True):
+        render_location_map(
+            map_key="report_page",
+            height=280,
+            session_key=REPORT_PINS_KEY,
+        )
+    with st.container(border=True):
+        st.markdown("**Pin details**")
+        render_pin_details(session_key=REPORT_PINS_KEY)
 
     submitted = st.button("Submit report", type="primary")
     if submitted:
@@ -234,9 +228,11 @@ def render() -> None:
             description=description,
             category=classification.category,
             urgency=classification.urgency,
-            event_time=datetime.combine(
-                st.session_state["form_event_date"],
-                st.session_state["form_event_time"],
+            event_time=as_utc(
+                datetime.combine(
+                    st.session_state["form_event_date"],
+                    st.session_state["form_event_time"],
+                )
             ),
             latitude=first.latitude if first else None,
             longitude=first.longitude if first else None,
@@ -252,10 +248,10 @@ def render() -> None:
         report.image_paths = uploaded_paths or _attach_sample_image(report.id)
         _repository().add_report(report)
         if is_found:
-            st.session_state["matches_view"] = "My found items"
+            st.session_state["matches_prefer_found"] = True
             st.session_state["matches_selected_found_id"] = report.id
         else:
-            st.session_state["matches_view"] = "My lost items"
+            st.session_state["matches_prefer_found"] = False
             st.session_state["matches_selected_lost_id"] = report.id
         pin_note = (
             f" with {len(locations)} location pin{'s' if len(locations) != 1 else ''}"
@@ -266,10 +262,9 @@ def render() -> None:
         if report.image_paths:
             st.caption(f"Saved {len(report.image_paths)} photo(s).")
         _render_classification(classification)
-        match_column, map_column = st.columns(2)
-        if match_column.button("See matches", type="primary"):
+        if st.button("See matches", type="primary", width="stretch"):
             st.switch_page(page_defs.matches_page)
-        if map_column.button("View on map"):
+        if st.button("View on map", width="stretch"):
             st.switch_page(page_defs.map_page)
 
     _render_debug_presets()

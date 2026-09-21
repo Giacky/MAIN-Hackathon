@@ -11,6 +11,7 @@ from models.schemas import (
     Meetup,
     MeetupStatus,
     Report,
+    as_utc,
     match_thread_id,
 )
 from pages.account import current_user
@@ -110,11 +111,10 @@ def _render_meetup(match_id: str, role: str) -> None:
             f"{meetup.meeting_time.strftime('%a %d %b, %H:%M')}."
         )
         if can_respond_to_meetup(meetup, role):
-            accept_column, decline_column = st.columns(2)
-            if accept_column.button("Accept meetup", type="primary"):
+            if st.button("Accept meetup", type="primary", width="stretch"):
                 _repository().update_meetup_status(match_id, MeetupStatus.ACCEPTED)
                 st.rerun()
-            if decline_column.button("Decline"):
+            if st.button("Decline", width="stretch"):
                 _repository().update_meetup_status(match_id, MeetupStatus.DECLINED)
                 st.rerun()
 
@@ -140,7 +140,7 @@ def _render_meetup(match_id: str, role: str) -> None:
                 match_id=match_id,
                 proposed_by=role,
                 location_name=location,
-                meeting_time=datetime.combine(meeting_date, meeting_time),
+                meeting_time=as_utc(datetime.combine(meeting_date, meeting_time)),
             )
         )
         st.rerun()
@@ -237,13 +237,13 @@ def render() -> None:
     if found.holding_note:
         st.info(f"Finder note: {found.holding_note}")
 
-    contact_column, meetup_column = st.columns(2)
-    with contact_column:
+    contact_tab, meetup_tab = st.tabs(["Contact", "Meetup"])
+    with contact_tab:
         with st.container(border=True):
             _render_other_contact(_other_report(lost, found, role), role)
         with st.container(border=True):
             _render_my_contact(_own_report(lost, found, role), role)
-    with meetup_column:
+    with meetup_tab:
         with st.container(border=True):
             _render_meetup(match_thread_id(lost.id, found.id), role)
 

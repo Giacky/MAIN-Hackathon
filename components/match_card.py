@@ -21,29 +21,24 @@ def _show_image(paths: tuple[str, ...], caption: str) -> None:
 
 
 def _similarity_row(label: str, score: float | None, detail: str) -> None:
-    name_column, bar_column, value_column = st.columns([1.4, 3.2, 0.9])
-    name_column.markdown(f"**{label}**")
     if score is None:
-        bar_column.progress(0.0)
-        value_column.markdown("**N/A**")
+        st.markdown(f"**{label}** — N/A")
+        st.progress(0.0)
         st.caption(detail)
         return
     clamped = max(0.0, min(1.0, float(score)))
-    bar_column.progress(clamped)
-    value_column.markdown(f"**{_percent(clamped)}**")
+    st.markdown(f"**{label}** — {_percent(clamped)}")
+    st.progress(clamped)
     st.caption(detail)
 
 
 def render_lost_context(lost_report: Report) -> None:
     with st.container(border=True):
         st.markdown("**Matching this lost report**")
-        left, right = st.columns([2, 1])
-        with left:
-            st.write(lost_report.description)
-            if lost_report.category:
-                st.caption(f"Category: {lost_report.category}")
-        with right:
-            _show_image(lost_report.image_paths, "Lost photo")
+        _show_image(lost_report.image_paths, "Lost photo")
+        st.write(lost_report.description)
+        if lost_report.category:
+            st.caption(f"Category: {lost_report.category}")
 
 
 def render_match_card(
@@ -57,20 +52,18 @@ def render_match_card(
     with st.container(border=True):
         st.subheader(f"Overall match — {_percent(match.overall_score)}")
 
-        lost_column, found_column = st.columns(2)
-        with lost_column:
-            st.markdown("**Lost**")
+        lost_tab, found_tab = st.tabs(["Lost", "Found"])
+        with lost_tab:
             if lost_report:
+                _show_image(lost_report.image_paths, "Lost")
                 st.write(lost_report.description)
                 if lost_report.category:
                     st.caption(f"Category: {lost_report.category}")
-                _show_image(lost_report.image_paths, "Lost")
             else:
                 st.caption(f"id {match.lost_report_id[:8]}")
-
-        with found_column:
-            st.markdown("**Found**")
+        with found_tab:
             if found_report:
+                _show_image(found_report.image_paths, "Found")
                 st.write(found_report.description)
                 if found_report.category:
                     st.caption(f"Category: {found_report.category}")
@@ -78,7 +71,6 @@ def render_match_card(
                     st.caption(f"Where it is now: {found_report.holding_note}")
                 if found_report.prefer_anonymous:
                     st.caption("Finder is anonymous")
-                _show_image(found_report.image_paths, "Found")
             else:
                 st.caption(f"id {match.found_report_id[:8]}")
 
@@ -116,6 +108,7 @@ def render_match_card(
 
         if allow_pickup and st.button(
             "Arrange pickup",
+            width="stretch",
             key=f"recover-{match.lost_report_id}-{match.found_report_id}",
         ):
             import page_defs

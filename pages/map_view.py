@@ -31,4 +31,4 @@ def render() -> None:
     lost_count = sum(1 for report in reports if report.report_type == ReportType.LOST)
     found_count = sum(1 for report in reports if report.report_type == ReportType.FOUND)
     st.caption(f"{lost_count} lost · {found_count} found with a saved location.")
-    render_reports_map(reports, height=560)
+    render_reports_map(reports, height=360)

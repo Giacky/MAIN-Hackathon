@@ -73,9 +73,10 @@ def _pick_own_report(reports: list[Report], session_key: str, heading: str) -> R
         st.session_state[session_key] = selected_id
 
     st.markdown(f"**{heading}**")
-    for row_start in range(0, len(reports), 3):
-        row = reports[row_start : row_start + 3]
-        columns = st.columns(3)
+    st.caption("Tap one item to rank it against other people's reports.")
+    for row_start in range(0, len(reports), 2):
+        row = reports[row_start : row_start + 2]
+        columns = st.columns(len(row))
         for column, report in zip(columns, row):
             with column:
                 if render_item_tile(
@@ -166,7 +167,7 @@ def _render_found_matches(lost_reports: list[Report], my_found: list[Report], us
 
 def render() -> None:
     st.title("Matches")
-    st.caption("Match one of your items at a time against other people's reports.")
+    st.caption("Pick one of your items, then see likely matches from other people.")
 
     user = current_user()
     if user is None:
@@ -178,15 +179,22 @@ def render() -> None:
     my_lost = _mine(lost_reports, user.id)
     my_found = _mine(found_reports, user.id)
 
-    view = st.radio(
-        "Match",
-        ["My lost items", "My found items"],
-        horizontal=True,
-        key="matches_view",
-    )
-    if view == "My lost items":
-        _render_lost_matches(my_lost, found_reports, user)
+    lost_label = f"Lost ({len(my_lost)})"
+    found_label = f"Found ({len(my_found)})"
+    prefer_found = bool(st.session_state.pop("matches_prefer_found", False))
+    show_found_first = prefer_found or (bool(my_found) and not my_lost)
+
+    if show_found_first:
+        found_tab, lost_tab = st.tabs([found_label, lost_label])
+        with found_tab:
+            _render_found_matches(lost_reports, my_found, user)
+        with lost_tab:
+            _render_lost_matches(my_lost, found_reports, user)
     else:
-        _render_found_matches(lost_reports, my_found, user)
+        lost_tab, found_tab = st.tabs([lost_label, found_label])
+        with lost_tab:
+            _render_lost_matches(my_lost, found_reports, user)
+        with found_tab:
+            _render_found_matches(lost_reports, my_found, user)
 
     _render_debug_tools()

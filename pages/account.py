@@ -27,6 +27,15 @@ def current_user() -> User | None:
     return user_from_session(st.session_state.get(SESSION_USER_KEY))
 
 
+def _login_as(repository: SQLiteRepository, email: str) -> None:
+    seeded = repository.get_user_by_email(email)
+    if seeded is None:
+        st.error("Dummy user is missing. Reload the app from Home.")
+        return
+    st.session_state[SESSION_USER_KEY] = user_session_payload(seeded)
+    st.rerun()
+
+
 def render() -> None:
     repository = _repository()
     user = current_user()
@@ -41,37 +50,28 @@ def render() -> None:
                 render_item_card(report)
         else:
             st.caption("You have not reported an item yet.")
-        action_column, match_column = st.columns(2)
-        if action_column.button("Report an item", type="primary"):
+        if st.button("Report an item", type="primary", width="stretch"):
             st.switch_page(page_defs.report_page)
-        if match_column.button("See matches"):
+        if st.button("See matches", width="stretch"):
             st.switch_page(page_defs.matches_page)
-        if st.button("Log out"):
+        if st.button("Log out", width="stretch"):
             st.session_state.pop(SESSION_USER_KEY, None)
             st.rerun()
         return
 
     st.caption("Log in so lost and found items stay attached to you when you arrange pickup.")
-    st.subheader("Demo testers")
-    st.caption(
-        f"Password for all three: `{DEMO_PASSWORD}`. "
-        "Use two browsers to act as owner and finder."
-    )
-    for account in DEMO_ACCOUNTS:
-        with st.container(border=True):
-            label_column, button_column = st.columns([3, 1])
-            label_column.markdown(
-                f"**{account.display_name}** (`{account.email}`)\n\n{account.summary}"
-            )
-            if button_column.button("Log in", key=f"quick-login-{account.user_id}"):
-                seeded = repository.get_user_by_email(account.email)
-                if seeded is None:
-                    st.error("Dummy user is missing. Reload the app from Home.")
-                else:
-                    st.session_state[SESSION_USER_KEY] = user_session_payload(seeded)
-                    st.rerun()
+    demo_tab, login_tab, register_tab = st.tabs(["Demo people", "Log in", "Create account"])
 
-    login_tab, register_tab = st.tabs(["Log in", "Create account"])
+    with demo_tab:
+        st.caption(f"Password for all three: `{DEMO_PASSWORD}`.")
+        for account in DEMO_ACCOUNTS:
+            if st.button(
+                f"{account.display_name} — {account.summary}",
+                width="stretch",
+                key=f"quick-login-{account.user_id}",
+            ):
+                _login_as(repository, account.email)
+
     with login_tab:
         with st.form("login-form"):
             email = st.text_input("Email")

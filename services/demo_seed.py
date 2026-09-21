@@ -39,6 +39,7 @@ class DemoAccount:
     email: str
     display_name: str
     summary: str
+    phone: str
 
 
 DEMO_ACCOUNTS = (
@@ -46,19 +47,22 @@ DEMO_ACCOUNTS = (
         user_id="user-demo-owner",
         email="alex@demo.local",
         display_name="Alex",
-        summary="Lost a black wallet. Shares contact.",
+        summary="Lost items",
+        phone="+31 6 1847 2210",
     ),
     DemoAccount(
         user_id="user-demo-finder",
         email="sam@demo.local",
         display_name="Sam",
-        summary="Found a wallet at the library. Stays anonymous.",
+        summary="Found items, stays anonymous",
+        phone="+31 6 2501 7744",
     ),
     DemoAccount(
         user_id="user-demo-mia",
         email="mia@demo.local",
         display_name="Mia",
-        summary="Found a card holder at a hotel. Shares a phone number.",
+        summary="Found items",
+        phone="+31 6 4291 8833",
     ),
 )
 
@@ -145,8 +149,17 @@ def _ensure_report(repository: SQLiteRepository, report: Report) -> Report:
     if not existing.image_paths and report.image_paths:
         existing.image_paths = report.image_paths
         changed = True
-    if not existing.holding_note and report.holding_note:
+    if report.holding_note and existing.holding_note != report.holding_note:
         existing.holding_note = report.holding_note
+        changed = True
+    if existing.description != report.description:
+        existing.description = report.description
+        changed = True
+    if existing.prefer_anonymous != report.prefer_anonymous:
+        existing.prefer_anonymous = report.prefer_anonymous
+        changed = True
+    if existing.contact_phone != report.contact_phone:
+        existing.contact_phone = report.contact_phone
         changed = True
     if changed:
         return repository.add_report(existing)
@@ -198,6 +211,9 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
         for account in DEMO_ACCOUNTS
     )
 
+    alex_phone = DEMO_ACCOUNTS[0].phone
+    sam_phone = DEMO_ACCOUNTS[1].phone
+    mia_phone = DEMO_ACCOUNTS[2].phone
     specs = (
         _report_from_preset(
             report_id=DEMO_LOST_ID,
@@ -205,9 +221,13 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=alex.id,
             hours_offset=0,
             contact_email=alex.email,
-            contact_phone="+31 6 1111 1111",
+            contact_phone=alex_phone,
             prefer_anonymous=False,
-            description="I lost a small black wallet near the university library.",
+            description=(
+                "Small black leather wallet. I had my UM student card and a blue "
+                "ING debit card in it. Last saw it on a desk in Inner City Library "
+                "around closing time."
+            ),
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_LIBRARY_ID,
@@ -215,10 +235,13 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=sam.id,
             hours_offset=1,
             contact_email=sam.email,
-            contact_phone="+31 6 2222 2222",
+            contact_phone=sam_phone,
             prefer_anonymous=True,
-            description="Black wallet found near the university library.",
-            holding_note="I left it at the library information desk.",
+            description=(
+                "Black leather wallet left on a table near the Inner City Library "
+                "entrance. Cards still inside, looks like a student wallet."
+            ),
+            holding_note="Handed in at the Inner City Library information desk. Ask at the counter.",
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_HOTEL_ID,
@@ -226,10 +249,13 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=mia.id,
             hours_offset=2,
             contact_email=mia.email,
-            contact_phone="+31 6 3333 3333",
+            contact_phone=mia_phone,
             prefer_anonymous=False,
-            description="Dark card holder left at a hotel reception.",
-            holding_note="I left it at the hotel reception counter.",
+            description=(
+                "Brown bifold card holder a guest left on the hotel reception desk. "
+                "Cash inside, no bank cards."
+            ),
+            holding_note="In the hotel lost-and-found box behind reception. Ask for Mia.",
         ),
         _report_from_preset(
             report_id=DEMO_LOST_KEYS_ID,
@@ -237,8 +263,12 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=alex.id,
             hours_offset=0,
             contact_email=alex.email,
-            contact_phone="+31 6 1111 1111",
+            contact_phone=alex_phone,
             prefer_anonymous=False,
+            description=(
+                "Three silver house keys on a blue plastic fob. I think they fell "
+                "off my bag outside the Tapijn cafeteria."
+            ),
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_KEYS_ID,
@@ -246,9 +276,13 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=sam.id,
             hours_offset=1,
             contact_email=sam.email,
-            contact_phone="+31 6 2222 2222",
+            contact_phone=sam_phone,
             prefer_anonymous=True,
-            holding_note="Left with the cafeteria staff.",
+            description=(
+                "Bunch of metal keys with a blue tag, sitting on a bench by the "
+                "Tapijn cafeteria."
+            ),
+            holding_note="Left with cafeteria staff next to the till at Tapijn.",
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_PHONE_ID,
@@ -256,9 +290,13 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=mia.id,
             hours_offset=3,
             contact_email=mia.email,
-            contact_phone="+31 6 3333 3333",
+            contact_phone=mia_phone,
             prefer_anonymous=False,
-            holding_note="I left it with the café barista.",
+            description=(
+                "Blue smartphone in a cracked case, left on a café table while I "
+                "was in Amsterdam for the weekend."
+            ),
+            holding_note="I left it with the barista and told them someone might come by.",
         ),
         _report_from_preset(
             report_id=DEMO_LOST_BACKPACK_ID,
@@ -266,8 +304,12 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=alex.id,
             hours_offset=-8,
             contact_email=alex.email,
-            contact_phone="+31 6 1111 1111",
+            contact_phone=alex_phone,
             prefer_anonymous=False,
+            description=(
+                "Old red student backpack with a laptop sleeve. I put it down at "
+                "the Boschstraat bus stop and it was gone when the 1A came."
+            ),
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_BACKPACK_ID,
@@ -275,9 +317,13 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=sam.id,
             hours_offset=-7,
             contact_email=sam.email,
-            contact_phone="+31 6 2222 2222",
+            contact_phone=sam_phone,
             prefer_anonymous=True,
-            holding_note="Left with the bus-station service desk.",
+            description=(
+                "Worn red backpack with black zips, left on a bench at the bus stop "
+                "near campus."
+            ),
+            holding_note="Dropped it at the bus-station service desk.",
         ),
         _report_from_preset(
             report_id=DEMO_LOST_BOTTLE_ID,
@@ -285,8 +331,12 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=alex.id,
             hours_offset=-6,
             contact_email=alex.email,
-            contact_phone="+31 6 1111 1111",
+            contact_phone=alex_phone,
             prefer_anonymous=False,
+            description=(
+                "Dark green metal bottle covered in festival stickers. Last had it "
+                "locked to my bike at the Vrijthof racks."
+            ),
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_BOTTLE_ID,
@@ -294,9 +344,13 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=sam.id,
             hours_offset=-5,
             contact_email=sam.email,
-            contact_phone="+31 6 2222 2222",
+            contact_phone=sam_phone,
             prefer_anonymous=True,
-            holding_note="Left at the nearby bicycle-rental counter.",
+            description=(
+                "Green reusable metal bottle with travel stickers, next to the "
+                "Vrijthof bike parking."
+            ),
+            holding_note="Left it at the bicycle-rental counter on Vrijthof.",
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_BOTTLE_FAR_ID,
@@ -304,9 +358,13 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=mia.id,
             hours_offset=42,
             contact_email=mia.email,
-            contact_phone="+31 6 3333 3333",
+            contact_phone=mia_phone,
             prefer_anonymous=False,
-            holding_note="Kept at the Amsterdam park information kiosk.",
+            description=(
+                "Plain dark green insulated bottle with a black cap, on a path in "
+                "Vondelpark while I was visiting a friend in Amsterdam."
+            ),
+            holding_note="Gave it to the park information kiosk.",
         ),
         _report_from_preset(
             report_id=DEMO_LOST_GLASSES_ID,
@@ -314,8 +372,12 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=alex.id,
             hours_offset=-4,
             contact_email=alex.email,
-            contact_phone="+31 6 1111 1111",
+            contact_phone=alex_phone,
             prefer_anonymous=False,
+            description=(
+                "Black rectangular glasses in a blue hard case. I took them off in "
+                "a study room at Inner City Library and forgot them under the desk."
+            ),
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_GLASSES_ID,
@@ -323,9 +385,13 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=sam.id,
             hours_offset=-3,
             contact_email=sam.email,
-            contact_phone="+31 6 2222 2222",
+            contact_phone=sam_phone,
             prefer_anonymous=True,
-            holding_note="Left at the university library information desk.",
+            description=(
+                "Black rectangular glasses and a dark blue case under a desk in "
+                "Inner City Library."
+            ),
+            holding_note="At the Inner City Library information desk.",
         ),
         _report_from_preset(
             report_id=DEMO_LOST_EARBUDS_ID,
@@ -333,8 +399,12 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=alex.id,
             hours_offset=-2,
             contact_email=alex.email,
-            contact_phone="+31 6 1111 1111",
+            contact_phone=alex_phone,
             prefer_anonymous=False,
+            description=(
+                "Scratched white wireless-earbuds case. Probably dropped it getting "
+                "on the bus at Boschstraat."
+            ),
         ),
         _report_from_preset(
             report_id=DEMO_FOUND_EARBUDS_ID,
@@ -342,9 +412,13 @@ def ensure_demo_data(repository: SQLiteRepository | None = None) -> SQLiteReposi
             user_id=mia.id,
             hours_offset=-1,
             contact_email=mia.email,
-            contact_phone="+31 6 3333 3333",
+            contact_phone=mia_phone,
             prefer_anonymous=False,
-            holding_note="I have it and can meet at the bus stop.",
+            description=(
+                "Dirty white earbuds charging case on the footpath by the campus "
+                "bus stop. Picked it up after my evening shift."
+            ),
+            holding_note="I still have it. Happy to meet at the Boschstraat bus stop.",
         ),
     )
     for report in specs:

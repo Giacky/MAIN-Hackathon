@@ -4,7 +4,10 @@ import streamlit as st
 
 import page_defs
 
-st.set_page_config(page_title="Smart Lost & Found", page_icon="🧭", layout="wide")
+from utils.ui import inject_mobile_css
+
+st.set_page_config(page_title="Smart Lost & Found", page_icon="🧭", layout="centered")
+inject_mobile_css()
 page_defs.init()
 
 

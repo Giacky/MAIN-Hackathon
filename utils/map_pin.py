@@ -85,6 +85,7 @@ def render_location_map(
     result = st_folium(
         fmap,
         height=height,
+        use_container_width=True,
         key=map_key,
         returned_objects=["last_clicked"] if interactive else [],
     )
@@ -158,4 +159,10 @@ def render_reports_map(reports: list[Report], *, height: int = 560) -> None:
         fmap.fit_bounds([[lat, lon] for lat, lon in points], padding=(30, 30))
     elif points:
         fmap.location = list(points[0])
-    st_folium(fmap, height=height, key="browse-reports-map", returned_objects=[])
+    st_folium(
+        fmap,
+        height=height,
+        use_container_width=True,
+        key="browse-reports-map",
+        returned_objects=[],
+    )
