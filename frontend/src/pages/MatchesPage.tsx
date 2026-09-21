@@ -1,26 +1,35 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, Navigate, useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, apiFetch } from '../api/client'
+import { fetchThreads, threadKey } from '../api/coordination'
 import type { MatchItem, Report } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+import { RedirectToLogin } from '../auth/RedirectToLogin'
 import { MatchCard } from '../components/MatchCard'
+import { Toast } from '../components/Toast'
 import { Badge } from '../components/ui/Badge'
-import { Button } from '../components/ui/Button'
 
 function unwrapReports(data: { reports?: Report[] } | Report[]): Report[] {
   return Array.isArray(data) ? data : (data.reports ?? [])
 }
 
-function unwrapMatches(
-  data: { matches?: MatchItem[] } | MatchItem[],
-): MatchItem[] {
+function unwrapMatches(data: { matches?: MatchItem[] } | MatchItem[]): MatchItem[] {
   return Array.isArray(data) ? data : (data.matches ?? [])
 }
 
 export function MatchesPage() {
   const { user, loading } = useAuth()
   const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  const navigate = useNavigate()
   const selectedId = params.get('report')
+
+  const toastFromState = (location.state as { toast?: string } | null)?.toast ?? null
+  const [toast, setToast] = useState<string | null>(toastFromState)
+  const clearToast = useCallback(() => {
+    setToast(null)
+    if (toastFromState) navigate(location.pathname + location.search, { replace: true, state: null })
+  }, [navigate, location.pathname, location.search, toastFromState])
 
   const [tab, setTab] = useState<'lost' | 'found'>('lost')
   const [mine, setMine] = useState<Report[] | null>(null)
@@ -28,21 +37,29 @@ export function MatchesPage() {
   const [matches, setMatches] = useState<MatchItem[] | null>(null)
   const [rankError, setRankError] = useState<string | null>(null)
   const [ranking, setRanking] = useState(false)
+  const [threadKeys, setThreadKeys] = useState<ReadonlySet<string>>(() => new Set())
 
   useEffect(() => {
     if (!user) return
     let cancelled = false
     ;(async () => {
       try {
-        const data = await apiFetch<{ reports?: Report[] } | Report[]>(
-          '/api/reports?scope=mine',
-        )
+        const data = await apiFetch<{ reports?: Report[] } | Report[]>('/api/reports?scope=mine')
         if (cancelled) return
         setMine(unwrapReports(data))
         setListError(null)
       } catch (err) {
         if (cancelled) return
         setListError(err instanceof ApiError ? err.message : 'Failed to load reports')
+      }
+    })()
+    ;(async () => {
+      try {
+        const threads = await fetchThreads()
+        if (cancelled) return
+        setThreadKeys(new Set(threads.map((t) => threadKey(t.lost.id, t.found.id))))
+      } catch {
+        /* CTA falls back to "Arrange pickup" */
       }
     })()
     return () => {
@@ -80,8 +97,7 @@ export function MatchesPage() {
           `/api/matches?report_id=${encodeURIComponent(selectedId)}`,
         )
         if (cancelled) return
-        const list = unwrapMatches(data).filter((m) => (m.overall_score ?? 0) > 0)
-        setMatches(list)
+        setMatches(unwrapMatches(data).filter((m) => (m.overall_score ?? 0) > 0))
       } catch (err) {
         if (cancelled) return
         setRankError(err instanceof ApiError ? err.message : 'Ranking failed')
@@ -95,85 +111,111 @@ export function MatchesPage() {
   }, [selectedId, user])
 
   if (loading) return <p className="text-sm text-muted">Loading…</p>
-  if (!user) return <Navigate to="/account" replace />
+  if (!user) return <RedirectToLogin />
 
   const selected = mine?.find((r) => r.id === selectedId)
+  const count = matches?.length ?? null
 
   return (
     <div className="space-y-5 animate-in">
       <header>
-        <h1 className="font-display text-2xl text-ink">Matches</h1>
+        <h1 className="font-display text-2xl text-ink">
+          {selected && count != null && !ranking
+            ? `${count} possible ${count === 1 ? 'match' : 'matches'}`
+            : 'Matches'}
+        </h1>
         <p className="mt-1 text-sm text-muted">
-          Pick one of your open reports to rank possible counterparts.
+          {selected
+            ? ranking
+              ? 'Ranking photo, text, place, and time…'
+              : 'Ranked by photo, text, place, and time.'
+            : 'Pick one of your open reports to rank possible counterparts.'}
         </p>
       </header>
 
-      <div className="flex gap-2">
-        <Button
-          variant={tab === 'lost' ? 'primary' : 'secondary'}
-          onClick={() => setTab('lost')}
-        >
-          My lost
-        </Button>
-        <Button
-          variant={tab === 'found' ? 'primary' : 'secondary'}
-          onClick={() => setTab('found')}
-        >
-          My found
-        </Button>
+      <div className="glass flex gap-1 rounded-full p-1" role="tablist" aria-label="Report type">
+        {(['lost', 'found'] as const).map((t) => {
+          const on = tab === t
+          return (
+            <button
+              key={t}
+              type="button"
+              role="tab"
+              aria-selected={on}
+              onClick={() => setTab(t)}
+              className={[
+                'flex-1 rounded-full py-2 text-sm font-semibold transition-colors duration-200',
+                on ? 'bg-primary-light text-primary' : 'text-muted hover:text-ink',
+              ].join(' ')}
+            >
+              {t === 'lost' ? 'My lost' : 'My found'}
+            </button>
+          )
+        })}
       </div>
 
       {listError ? (
-        <p className="text-sm text-primary">{listError}</p>
+        <p className="text-sm text-accent">{listError}</p>
       ) : mine == null ? (
         <p className="text-sm text-muted">Loading your reports…</p>
       ) : tabReports.length === 0 ? (
         <p className="text-sm text-muted">
           No open {tab} reports.{' '}
-          <Link to={`/report?type=${tab}`} className="text-primary underline">
+          <Link to={`/report?type=${tab}`} className="font-medium text-primary">
             File one
           </Link>
         </p>
       ) : (
-        <ul className="space-y-2">
-          {tabReports.map((r) => (
-            <li key={r.id}>
-              <button
-                type="button"
-                onClick={() => selectReport(r.id)}
-                className={[
-                  'w-full rounded-2xl border px-3 py-3 text-left transition duration-150',
-                  selectedId === r.id
-                    ? 'border-primary/50 bg-cream'
-                    : 'border-hairline bg-card hover:border-primary/30',
-                ].join(' ')}
-              >
-                <div className="mb-1 flex items-center gap-2">
-                  <Badge tone={r.report_type === 'lost' ? 'lost' : 'found'}>
-                    {r.report_type}
-                  </Badge>
-                  {ranking && selectedId === r.id ? (
-                    <span className="text-xs text-muted">Ranking…</span>
-                  ) : null}
-                </div>
-                <p className="line-clamp-2 text-sm text-ink">{r.description}</p>
-              </button>
-            </li>
-          ))}
+        <ul className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+          {tabReports.map((r) => {
+            const on = selectedId === r.id
+            const photo = r.image_urls?.[0]
+            return (
+              <li key={r.id} className="shrink-0">
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => selectReport(r.id)}
+                  className={[
+                    'flex w-40 items-center gap-2.5 rounded-2xl border p-2 text-left transition duration-150 active:scale-[0.98]',
+                    on
+                      ? 'border-primary/50 bg-primary-light/70'
+                      : 'border-white/60 bg-card/50 backdrop-blur-xl hover:bg-card/70',
+                  ].join(' ')}
+                >
+                  <span className="h-12 w-12 shrink-0 overflow-hidden rounded-xl bg-primary-light/60">
+                    {photo ? <img src={photo} alt="" className="h-full w-full object-cover" /> : null}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <Badge tone={r.report_type === 'lost' ? 'lost' : 'found'} className="mb-0.5">
+                      {r.report_type}
+                    </Badge>
+                    <span className="block truncate text-xs leading-snug text-ink">{r.description}</span>
+                  </span>
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
 
       {selected ? (
         <section className="space-y-3">
-          <h2 className="font-display text-lg text-ink">Ranked results</h2>
           {ranking ? (
-            <p className="text-sm text-muted">Ranking…</p>
+            <div className="space-y-4" aria-busy>
+              {[0, 1].map((i) => (
+                <div key={i} className="glass h-72 animate-pulse" />
+              ))}
+            </div>
           ) : rankError ? (
-            <p className="text-sm text-primary">{rankError}</p>
+            <p className="text-sm text-accent">{rankError}</p>
           ) : matches == null ? null : matches.length === 0 ? (
-            <p className="text-sm text-muted">
-              No positive matches yet. Try another report or add a clearer photo.
-            </p>
+            <div className="glass px-4 py-6 text-center">
+              <p className="text-sm text-ink">No positive matches yet.</p>
+              <p className="mt-1 text-xs text-muted">
+                Try another report or add a clearer photo. New reports are matched as they come in.
+              </p>
+            </div>
           ) : (
             <div className="space-y-4">
               {matches.map((m) => (
@@ -181,12 +223,15 @@ export function MatchesPage() {
                   key={`${m.lost.id}-${m.found.id}`}
                   match={m}
                   anchorType={selected.report_type}
+                  hasThread={threadKeys.has(threadKey(m.lost.id, m.found.id))}
                 />
               ))}
             </div>
           )}
         </section>
       ) : null}
+
+      <Toast message={toast} onDone={clearToast} />
     </div>
   )
 }

@@ -6,6 +6,16 @@ export interface User {
   id: string
   email: string
   display_name: string
+  /** Hex color for the avatar chip; optional until the API exposes it. */
+  avatar?: string
+}
+
+/** One-tap demo persona from GET /api/auth/demo-accounts. Password is always `demo`. */
+export interface DemoAccount {
+  name: string
+  email: string
+  avatar: string
+  summary: string
 }
 
 export interface LocationPin {
@@ -118,8 +128,22 @@ export interface CoordinationPayload {
   lost: Report
   found: Report
   other_contact: OtherContact | null
+  /** Display name of the other party when the API chooses to expose it. */
+  other_name?: string | null
   meetup: Meetup | null
   messages: CoordinationMessage[]
+  recovered: boolean
+}
+
+export type MeetupStatus = 'none' | 'proposed' | 'accepted' | 'declined'
+
+/** One active pickup thread from GET /api/coordination. */
+export interface CoordinationThread {
+  lost: Report
+  found: Report
+  role: 'lost' | 'found'
+  meetup_status: MeetupStatus
+  last_message: string | null
   recovered: boolean
 }
 

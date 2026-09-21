@@ -7,22 +7,21 @@
 @import '@fontsource/figtree/600.css';
 
 @theme {
-  --color-page: #f6f3ee;
-  --color-ink: #1c1917;
-  --color-muted: #57534e;
-  --color-hairline: #e7e0d8;
+  --color-page: #f7f6f2;
   --color-card: #ffffff;
-  --color-primary: #c45c26;
-  --color-lost: #2563eb;
-  --color-found: #15803d;
-  --color-cream: #f0ebe3;
-  --color-stone: #a8a29e;
+  --color-ink: #202625;
+  --color-muted: #697472;
+  --color-hairline: #e2e7e5;
+  --color-primary: #176b68;
+  --color-primary-light: #d8eeeb;
+  --color-accent: #f28c68;
+  --color-success: #4c956c;
   --font-display: 'Fraunces', Georgia, serif;
   --font-sans: 'Figtree', system-ui, sans-serif;
 }
 
-/* Base resets live in the base layer so Tailwind utilities (e.g. text-page on the
-   active nav link) still win over them. Unlayered rules would beat every utility. */
+/* Base resets live in the base layer so Tailwind utilities still win over them.
+   Unlayered rules would beat every utility. */
 @layer base {
   * {
     box-sizing: border-box;
@@ -42,6 +41,36 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /* Depth behind the glass: three fixed gradient blobs. Without these the
+     backdrop blur has nothing to blur and every surface reads as flat white. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(
+        42rem 42rem at -10% -8%,
+        var(--color-primary-light) 0%,
+        color-mix(in srgb, var(--color-primary-light) 55%, transparent) 38%,
+        transparent 70%
+      ),
+      radial-gradient(
+        38rem 38rem at 110% 105%,
+        color-mix(in srgb, var(--color-accent) 18%, transparent) 0%,
+        color-mix(in srgb, var(--color-accent) 8%, transparent) 40%,
+        transparent 70%
+      ),
+      radial-gradient(
+        30rem 30rem at -5% 55%,
+        color-mix(in srgb, var(--color-success) 10%, transparent) 0%,
+        transparent 65%
+      ),
+      var(--color-page);
+    background-attachment: fixed;
+  }
+
   #root {
     min-height: 100dvh;
   }
@@ -59,13 +88,153 @@
   }
 }
 
+/* Liquid glass surfaces: translucent white, heavy backdrop blur, white inner
+   border, a top specular line, a hairline ring, and a soft drop shadow. */
+@utility glass {
+  @apply rounded-3xl border border-white/60 bg-card/55 backdrop-blur-2xl backdrop-saturate-150;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    0 0 0 1px color-mix(in srgb, var(--color-hairline) 55%, transparent),
+    0 8px 30px rgba(32, 38, 37, 0.06);
+}
+
+@utility glass-strong {
+  @apply rounded-3xl border border-white/70 bg-card/70 backdrop-blur-3xl backdrop-saturate-150;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    0 0 0 1px color-mix(in srgb, var(--color-hairline) 60%, transparent),
+    0 12px 40px rgba(32, 38, 37, 0.1);
+}
+
+/* Inset field variant for inputs: slightly more opaque, shadow goes inward. */
+@utility glass-field {
+  @apply rounded-2xl border border-white/70 bg-card/60 backdrop-blur-md;
+  box-shadow:
+    inset 0 1px 2px rgba(32, 38, 37, 0.06),
+    0 0 0 1px color-mix(in srgb, var(--color-hairline) 70%, transparent);
+}
+
+/* No backdrop-filter: fall back to opaque card surfaces so text stays legible. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-strong,
+  .glass-field,
+  .leaflet-popup-content-wrapper,
+  .leaflet-popup-tip {
+    background-color: var(--color-card);
+  }
+}
+
 .font-display {
   font-family: var(--font-display);
 }
 
+/* Leaflet */
 .leaflet-container {
   font-family: var(--font-sans);
   z-index: 0;
+  border-radius: 1.5rem;
+  background: var(--color-page);
+}
+
+.leaflet-tile-pane {
+  filter: saturate(0.85);
+}
+
+.leaflet-control-attribution {
+  font-size: 9px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--color-muted);
+}
+
+.leaflet-bar {
+  border: 1px solid rgba(255, 255, 255, 0.7) !important;
+  border-radius: 0.75rem !important;
+  overflow: hidden;
+  box-shadow: 0 6px 20px rgba(32, 38, 37, 0.08) !important;
+}
+
+.leaflet-bar a {
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--color-ink);
+  border-bottom-color: color-mix(in srgb, var(--color-hairline) 70%, transparent);
+}
+
+.leaflet-popup-content-wrapper {
+  background: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-radius: 1.25rem;
+  color: var(--color-ink);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 10px 30px rgba(32, 38, 37, 0.14);
+}
+
+.leaflet-popup-content {
+  margin: 10px 12px;
+  line-height: 1.35;
+  font-size: 13px;
+}
+
+.leaflet-popup-content p {
+  margin: 0;
+}
+
+.leaflet-popup-tip {
+  background: rgba(255, 255, 255, 0.8);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
+  box-shadow: none;
+}
+
+.leaflet-container a.leaflet-popup-close-button {
+  color: var(--color-muted);
+  top: 6px;
+  right: 6px;
+}
+
+/* Map pins: frosted teardrop with a colored core. */
+.lf-pin {
+  position: relative;
+  background: none;
+  border: 0;
+}
+
+.lf-pin svg {
+  display: block;
+  filter: drop-shadow(0 3px 4px rgba(32, 38, 37, 0.28));
+  transition: transform 150ms ease-out;
+  transform-origin: 50% 100%;
+}
+
+.lf-pin.active svg {
+  transform: scale(1.1);
+}
+
+.lf-pin-pulse {
+  position: absolute;
+  left: 50%;
+  top: 14px;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border-radius: 999px;
+  opacity: 0.35;
+  pointer-events: none;
+  animation: pin-pulse 1.6s ease-out infinite;
+}
+
+@keyframes pin-pulse {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
 }
 
 @keyframes fade-in {
@@ -81,4 +250,28 @@
 
 .animate-in {
   animation: fade-in 150ms ease-out;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-toast {
+  animation: toast-in 200ms ease-out;
+}
+
+/* Hide scrollbars on horizontal chip rows without disabling scroll. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

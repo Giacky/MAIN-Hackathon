@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { MatchItem } from '../api/types'
 import { Badge } from './ui/Badge'
+import { buttonBase, buttonVariants } from './ui/Button'
 import { Card } from './ui/Card'
 
 function pct(score: number | null | undefined): number {
@@ -12,13 +13,13 @@ function Meter({ label, value }: { label: string; value: number | null | undefin
   const width = pct(value)
   return (
     <div className="min-w-0">
-      <div className="mb-0.5 flex justify-between gap-2 text-[11px] text-muted">
+      <div className="mb-1 flex justify-between gap-2 text-[11px] text-muted">
         <span>{label}</span>
-        <span>{value == null ? '—' : `${width}%`}</span>
+        <span className="tabular-nums">{value == null ? '—' : `${width}%`}</span>
       </div>
-      <div className="h-1 overflow-hidden rounded-full bg-hairline">
+      <div className="h-1.5 overflow-hidden rounded-full bg-primary-light">
         <div
-          className="h-full rounded-full bg-ink/70 transition-[width] duration-150"
+          className="h-full rounded-full bg-primary transition-[width] duration-200"
           style={{ width: `${width}%` }}
         />
       </div>
@@ -29,13 +30,14 @@ function Meter({ label, value }: { label: string; value: number | null | undefin
 interface MatchCardProps {
   match: MatchItem
   anchorType: 'lost' | 'found'
+  /** True when a pickup thread (notes or meetup) already exists for this pair. */
+  hasThread?: boolean
 }
 
-export function MatchCard({ match, anchorType }: MatchCardProps) {
+export function MatchCard({ match, anchorType, hasThread = false }: MatchCardProps) {
   const other = anchorType === 'lost' ? match.found : match.lost
   const photo = other.image_urls?.[0]
   const overall = pct(match.overall_score)
-  const scoreTone = match.overall_score < 0.25 ? 'stone' : 'ink'
   const visual = match.visual
 
   let visualLine: string | null = null
@@ -51,7 +53,8 @@ export function MatchCard({ match, anchorType }: MatchCardProps) {
     visualLine = 'Not in the visual shortlist'
   }
 
-  const category = other.category && !/mock|unclassified/i.test(other.category) ? other.category : null
+  const category =
+    other.category && !/mock|unclassified/i.test(other.category) ? other.category : null
   const heading = category
     ? category.charAt(0).toUpperCase() + category.slice(1)
     : other.report_type === 'found'
@@ -66,19 +69,24 @@ export function MatchCard({ match, anchorType }: MatchCardProps) {
 
   return (
     <Card padded={false} className="overflow-hidden animate-in">
-      <div className="relative aspect-[4/3] bg-cream">
+      <div className="relative aspect-[4/3] bg-primary-light/50">
         {photo ? (
           <img src={photo} alt="" className="h-full w-full object-cover" />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted">
-            No photo
-          </div>
+          <div className="flex h-full items-center justify-center text-sm text-muted">No photo</div>
         )}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-ink/25 to-transparent" />
         <Badge
-          tone={scoreTone}
-          className="absolute right-3 top-3 shadow-sm backdrop-blur-sm"
+          tone={match.overall_score < 0.25 ? 'muted' : 'accent'}
+          className="absolute right-3 top-3 px-3 py-1 text-sm shadow-[0_4px_14px_rgba(242,140,104,.35)]"
         >
           {overall}% match
+        </Badge>
+        <Badge
+          tone={other.report_type === 'lost' ? 'lost' : 'found'}
+          className="absolute left-3 top-3 bg-card/80"
+        >
+          {other.report_type}
         </Badge>
       </div>
 
@@ -99,7 +107,7 @@ export function MatchCard({ match, anchorType }: MatchCardProps) {
           ) : null}
         </div>
 
-        <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
           <Meter label="Text" value={match.text_score} />
           <Meter label="Photos" value={match.image_score} />
           <Meter label="Category" value={match.category_score} />
@@ -123,15 +131,13 @@ export function MatchCard({ match, anchorType }: MatchCardProps) {
           <p className="text-xs text-muted">Photo model note: {match.image_error}</p>
         ) : null}
 
-        {match.gate_reason ? (
-          <p className="text-xs text-muted">Gate: {match.gate_reason}</p>
-        ) : null}
+        {match.gate_reason ? <p className="text-xs text-muted">Gate: {match.gate_reason}</p> : null}
 
         <Link
           to={`/pickup/${match.lost.id}/${match.found.id}`}
-          className="mt-1 inline-flex w-full items-center justify-center rounded-xl bg-primary px-4 py-3 text-[15px] font-medium text-white transition duration-150 hover:brightness-105"
+          className={[buttonBase, hasThread ? buttonVariants.primary : buttonVariants.accent, 'mt-1 w-full'].join(' ')}
         >
-          Arrange pickup
+          {hasThread ? 'Continue pickup' : 'Arrange pickup'}
         </Link>
       </div>
     </Card>
