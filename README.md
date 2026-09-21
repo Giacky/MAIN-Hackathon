@@ -1,6 +1,6 @@
 # Smart Lost & Found
 
-A small, runnable foundation for a three-person hackathon project. Users can submit lost/found reports and navigate mock matches, map, chat, drop-off, and recovery experiences. The ML and recovery features are intentionally interfaces or placeholders.
+A small, runnable foundation for a three-person hackathon project. Users can submit lost/found reports; the Mac demo server classifies descriptions, stores optional photos, and ranks matches. Chat and map are still placeholders.
 
 ## Setup
 
@@ -14,14 +14,31 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-No model download, API key, or environment variable is required. Runtime SQLite files and uploads are ignored by Git.
+The first real classification or match ranking downloads Hugging Face weights onto this machine (DeBERTa + BGE + CLIP). Set `LOST_FOUND_MOCK_ML=1` to skip models (tests do this automatically). Runtime SQLite files and uploads are ignored by Git.
+
+### Demo server (MacBook + phone)
+
+`.streamlit/config.toml` binds Streamlit to all interfaces on port 8501. On the M2 Pro:
+
+```bash
+source .venv/bin/activate
+streamlit run app.py
+```
+
+On a phone on the same Wi-Fi, open `http://<mac-lan-ip>:8501`. Allow Python through the macOS firewall if the phone cannot connect. Inference uses Apple MPS when available.
+
+To find the Mac LAN IP:
+
+```bash
+ipconfig getifaddr en0
+```
 
 ## Architecture
 
 - `app.py`: application bootstrap and navigation only.
 - `pages/`: Streamlit screens and forms.
 - `components/`: reusable display components for reports and matches.
-- `services/`: stable ML/matching interfaces with lightweight mock behavior.
+- `services/`: classification, text similarity, geo/time scoring, and match ranking.
 - `database/`: SQLite setup, row conversion helpers, and repository methods.
 - `models/schemas.py`: shared data contracts used by every workstream.
 - `utils/config.py`: portable paths and optional environment configuration.
@@ -35,13 +52,13 @@ SQLite is implemented with Python's standard library, so SQLAlchemy is unnecessa
 - `pages/`
 - `components/`
 
-Build the report and upload experience, maps, match cards, recovery/drop-off UI, chat UI, and visual polish. Mock objects in `pages/matches.py` let this work proceed without ML or database changes.
+Build the report and upload experience, maps, match cards, recovery/drop-off UI, chat UI, and visual polish. Matches are ranked live from SQLite via `MatchingEngine`.
 
 ### Files/folders owned by Developer 2 — ML/Matching
 
 - `services/`
 
-Replace the explicit mock implementations for classification, text similarity, location, time, optional image similarity, and score aggregation. Keep the public signatures stable.
+Classification, text similarity, geo/time scoring, CLIP image similarity, and score aggregation live here. Keep the public signatures stable. Mock mode via `LOST_FOUND_MOCK_ML=1`.
 
 ### Files/folders owned by Developer 3 — Data/Recovery/Integration
 
@@ -93,12 +110,13 @@ The simplest website path is Streamlit Community Cloud:
 
 The current app needs no secrets. For durable public usage, replace local SQLite/upload storage because Community Cloud instances can restart and discard local runtime data.
 
-## Future ML
+## Matching models
 
-These are documented targets, not current dependencies:
+Implemented locally (no API key):
 
-- DeBERTa: `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` for zero-shot category, urgency, sensitivity, and handling classification.
-- Sentence Transformer: `BAAI/bge-small-en-v1.5` (or equivalent) for semantic lost/found description similarity.
-- Optional DINOv2, SigLIP, or CLIP embeddings for image similarity if time permits.
+- DeBERTa: `MoritzLaurer/deberta-v3-base-zeroshot-v2.0` for category, urgency, sensitivity, and handling.
+- Sentence Transformer: `BAAI/bge-small-en-v1.5` for lost/found description similarity.
+- CLIP: `clip-ViT-B-32` for photo similarity when both reports have saved images.
+- Geo/time: Haversine + radius decay and exponential time decay (not neural nets).
 
-Add PyTorch, Transformers, Sentence Transformers, or imaging packages only when their implementations land.
+Unittests set `LOST_FOUND_MOCK_ML=1` so they never download weights.

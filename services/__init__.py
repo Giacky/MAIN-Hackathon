@@ -1,4 +1,4 @@
-"""Matching service interfaces and placeholder implementations."""
+"""Matching service interfaces and implementations."""
 
 from .classifier import ReportClassifier
 from .geo_matching import GeoMatcher

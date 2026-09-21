@@ -8,6 +8,85 @@ from services.image_matching import ImageMatcher
 from services.text_similarity import TextSimilarityService
 from services.time_matching import TimeMatcher
 
+# Text/image dominate; location/time are light tie-breakers among survivors.
+_WEIGHT_TEXT = 0.60
+_WEIGHT_IMAGE = 0.28
+_WEIGHT_GEO = 0.08
+_WEIGHT_TIME = 0.04
+
+# Hard gates: cross-type / weak text cannot be rescued by location/time.
+TEXT_SCORE_FLOOR = 0.45
+
+
+def _type_value(report: Report) -> str:
+    """Compare report types by value so Streamlit hot-reload enum identity cannot break matching."""
+    report_type = report.report_type
+    if isinstance(report_type, ReportType):
+        return report_type.value
+    return str(report_type).lower()
+
+
+def _normalize_category(category: str | None) -> str | None:
+    if not category:
+        return None
+    cleaned = category.strip().lower()
+    if not cleaned or "mock" in cleaned or cleaned == "unclassified":
+        return None
+    return cleaned
+
+
+def category_compatibility(lost_report: Report, found_report: Report) -> float | None:
+    """1.0 same category, 0.0 different, None if either side lacks a usable category."""
+    left = _normalize_category(lost_report.category)
+    right = _normalize_category(found_report.category)
+    if left is None or right is None:
+        return None
+    return 1.0 if left == right else 0.0
+
+
+def weighted_overall(
+    text_score: float,
+    geo_score: float,
+    time_score: float,
+    image_score: float | None,
+    category_score: float | None = None,
+) -> float:
+    """Weighted blend before gates. Category is a hard gate, not part of the blend."""
+    del category_score  # kept in signature for call-site compatibility
+    parts: list[tuple[float, float]] = [
+        (text_score, _WEIGHT_TEXT),
+        (geo_score, _WEIGHT_GEO),
+        (time_score, _WEIGHT_TIME),
+    ]
+    if image_score is not None:
+        parts.append((image_score, _WEIGHT_IMAGE))
+    total_weight = sum(weight for _, weight in parts)
+    if total_weight <= 0:
+        return 0.0
+    score = sum(value * weight for value, weight in parts) / total_weight
+    return float(max(0.0, min(1.0, score)))
+
+
+def apply_match_gates(
+    text_score: float,
+    category_score: float | None,
+    blended_score: float,
+) -> float:
+    """Zero out pairs that fail category or text floors."""
+    if category_score == 0.0:
+        return 0.0
+    if text_score < TEXT_SCORE_FLOOR:
+        return 0.0
+    return blended_score
+
+
+def gate_reason(text_score: float, category_score: float | None) -> str | None:
+    if category_score == 0.0:
+        return "category mismatch (hard gate)"
+    if text_score < TEXT_SCORE_FLOOR:
+        return f"text score below floor ({TEXT_SCORE_FLOOR:.0%})"
+    return None
+
 
 class MatchingEngine:
     """Combine matching services behind one UI-facing interface."""
@@ -27,13 +106,15 @@ class MatchingEngine:
     def rank_matches(
         self, lost_report: Report, found_reports: Iterable[Report]
     ) -> list[MatchResult]:
-        """Produce placeholder rankings while keeping the eventual contract stable."""
-        if lost_report.report_type is not ReportType.LOST:
-            raise ValueError("lost_report must have report_type=LOST")
+        """Rank found reports; category mismatch / weak text are hard-gated to 0."""
+        if _type_value(lost_report) != ReportType.LOST.value:
+            raise ValueError(
+                f"lost_report must have report_type=LOST (got {_type_value(lost_report)!r})"
+            )
 
         results: list[MatchResult] = []
         for found_report in found_reports:
-            if found_report.report_type is not ReportType.FOUND:
+            if _type_value(found_report) != ReportType.FOUND.value:
                 continue
             text_score = self.text_matcher.compare(
                 lost_report.description, found_report.description
@@ -43,16 +124,23 @@ class MatchingEngine:
             image_score = self.image_matcher.compare(
                 lost_report.image_paths, found_report.image_paths
             )
-            active_scores = [text_score, geo.score, time_score]
-            if image_score is not None:
-                active_scores.append(image_score)
+            category_score = category_compatibility(lost_report, found_report)
+            blended = weighted_overall(
+                text_score,
+                geo.score,
+                time_score,
+                image_score,
+                category_score,
+            )
+            overall = apply_match_gates(text_score, category_score, blended)
             results.append(
                 MatchResult(
                     lost_report_id=lost_report.id,
                     found_report_id=found_report.id,
-                    overall_score=sum(active_scores) / len(active_scores),
+                    overall_score=overall,
                     text_score=text_score,
                     image_score=image_score,
+                    category_score=category_score,
                     geo_score=geo.score,
                     time_score=time_score,
                     distance_meters=geo.distance_meters,

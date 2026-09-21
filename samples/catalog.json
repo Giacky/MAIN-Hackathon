@@ -1,0 +1,75 @@
+{
+  "scenarios": [
+    {
+      "id": "A_wallet_strong",
+      "lost": {
+        "description": "Small black leather wallet with a blue bank card and student ID inside. Lost near the university library.",
+        "image": "images/lost_black_wallet.png",
+        "latitude": 50.8514,
+        "longitude": 5.69,
+        "radius_meters": 500
+      },
+      "found": {
+        "description": "Black wallet found by the university library entrance. Contains cards and looks like leather.",
+        "image": "images/found_black_wallet.png",
+        "latitude": 50.8516,
+        "longitude": 5.6902,
+        "radius_meters": 500
+      }
+    },
+    {
+      "id": "B_wallet_distractor",
+      "found": {
+        "description": "Brown bifold wallet with cash only, no cards. Found at the train station.",
+        "image": "images/found_brown_wallet.png",
+        "latitude": 50.849,
+        "longitude": 5.705,
+        "radius_meters": 500
+      }
+    },
+    {
+      "id": "C_keys",
+      "lost": {
+        "description": "Set of three silver house keys on a blue plastic key fob. Lost outside the student cafeteria.",
+        "image": "images/lost_silver_keys.png",
+        "latitude": 50.8514,
+        "longitude": 5.69,
+        "radius_meters": 500
+      },
+      "found": {
+        "description": "Metal keys with a blue tag found on a bench near the cafeteria.",
+        "image": "images/found_silver_keys.png",
+        "latitude": 50.8515,
+        "longitude": 5.6901,
+        "radius_meters": 500
+      }
+    },
+    {
+      "id": "D_phone_mismatch",
+      "found": {
+        "description": "Blue smartphone with a cracked protective case left on a café table.",
+        "image": "images/found_blue_phone.png",
+        "latitude": 52.3702,
+        "longitude": 4.8952,
+        "radius_meters": 500
+      }
+    },
+    {
+      "id": "E_backpack",
+      "lost": {
+        "description": "Red backpack with a laptop sleeve and a water bottle pocket. Lost at the main bus stop.",
+        "image": "images/lost_red_backpack.png",
+        "latitude": 50.8514,
+        "longitude": 5.69,
+        "radius_meters": 500
+      },
+      "found": {
+        "description": "Red bag found at the bus stop, looks like a student backpack.",
+        "image": "images/found_red_bag.png",
+        "latitude": 50.8513,
+        "longitude": 5.6898,
+        "radius_meters": 500
+      }
+    }
+  ]
+}

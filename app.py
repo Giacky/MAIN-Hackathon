@@ -11,6 +11,22 @@ from pages.report_item import render as render_report_item
 st.set_page_config(page_title="Smart Lost & Found", page_icon="🧭", layout="wide")
 
 
+@st.cache_resource
+def _prepare_ml() -> str:
+    from services.ml_runtime import use_mock_ml, warmup_text_models
+
+    if use_mock_ml():
+        return "mock"
+    try:
+        warmup_text_models()
+    except Exception:
+        return "unavailable"
+    return "ready"
+
+
+_prepare_ml()
+
+
 def render_home() -> None:
     """Render the landing page."""
     st.title("🧭 Smart Lost & Found")
@@ -21,14 +37,17 @@ def render_home() -> None:
     )
 
     lost_column, found_column = st.columns(2)
-    if lost_column.button("I lost something", type="primary", use_container_width=True):
+    if lost_column.button("I lost something", type="primary", width="stretch"):
         st.session_state["report_type"] = "lost"
         st.switch_page(report_page)
-    if found_column.button("I found something", use_container_width=True):
+    if found_column.button("I found something", width="stretch"):
         st.session_state["report_type"] = "found"
         st.switch_page(report_page)
 
-    st.info("Hackathon skeleton: matching, chat, and image intelligence are placeholders.")
+    st.info(
+        "Matching runs on this Mac (text, location, time, and CLIP when photos exist). "
+        "Chat and map are still placeholders."
+    )
 
 
 home_page = st.Page(
