@@ -164,6 +164,15 @@ class ApiTests(unittest.TestCase):
             "found",
         ):
             self.assertIn(key, top)
+        for match in matches:
+            if match["image_score"] is None:
+                self.assertIsNone(match["visual"])
+            else:
+                self.assertEqual(
+                    set(match["visual"]),
+                    {"shortlisted", "dino_score", "inliers", "inlier_ratio"},
+                )
+                self.assertIsInstance(match["visual"]["shortlisted"], bool)
         phone_match = next(
             (
                 match

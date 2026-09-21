@@ -99,23 +99,20 @@ def report_public(
 
 
 def _visual_from_match(match: MatchResult) -> dict[str, Any] | None:
-    """Copy optional vision fields into API JSON without requiring schema changes."""
+    """Expose the optional DINOv2 + LightGlue evidence carried on MatchResult.
+
+    Returns null when there is no photo score at all. When a photo score exists
+    but the pair was not shortlisted (CLIP fallback, mock ML, or outside the
+    DINOv2 top-N), `shortlisted` is False and the evidence fields are null so
+    the client can say "not in the visual shortlist" without treating it as an error.
+    """
     if match.image_score is None:
         return None
-    shortlisted = getattr(match, "shortlisted", None)
-    dino_score = getattr(match, "dino_score", None)
-    inliers = getattr(match, "inliers", None)
-    inlier_ratio = getattr(match, "inlier_ratio", None)
-    visual = getattr(match, "visual", None)
-    if isinstance(visual, dict):
-        return visual
-    if shortlisted is None and dino_score is None and inliers is None and inlier_ratio is None:
-        return None
     return {
-        "shortlisted": shortlisted,
-        "dino_score": dino_score,
-        "inliers": inliers,
-        "inlier_ratio": inlier_ratio,
+        "shortlisted": bool(match.visual_shortlisted),
+        "dino_score": match.visual_dino_score,
+        "inliers": match.visual_inliers,
+        "inlier_ratio": match.visual_inlier_ratio,
     }
 
 

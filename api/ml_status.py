@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from typing import Literal
 
-from services.ml_runtime import inference_device, use_mock_ml, warmup_text_models
+from services.ml_runtime import (
+    dino_model,
+    dino_processor,
+    feature_matcher_stack,
+    image_backend,
+    inference_device,
+    rembg_session,
+    use_mock_ml,
+    warmup_text_models,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -24,15 +32,6 @@ _models: dict[str, ModelState] = {
 _warmup_thread: threading.Thread | None = None
 
 
-def _image_backend() -> str:
-    if use_mock_ml():
-        return "mock"
-    forced = os.getenv("LOST_FOUND_IMAGE_BACKEND", "").strip().lower()
-    if forced == "clip":
-        return "clip"
-    return "dino_lightglue"
-
-
 def snapshot() -> dict:
     with _lock:
         models = dict(_models)
@@ -42,7 +41,9 @@ def snapshot() -> dict:
         "status": "ok",
         "mock_ml": use_mock_ml(),
         "device": inference_device(),
-        "image_backend": _image_backend(),
+        # services.ml_runtime.image_backend() already folds in mock mode, the
+        # LOST_FOUND_IMAGE_BACKEND override, and the automatic CLIP fallback.
+        "image_backend": image_backend(),
         "models": models,
     }
 
@@ -66,10 +67,17 @@ def _run_warmup() -> None:
             logger.exception("Text model warmup failed")
             _set_many({"classifier": "failed", "text": "failed"})
 
+        if image_backend() == "clip":
+            # CLIP was forced or the ALIKED/LightGlue stack is unavailable;
+            # warmup_text_models already loaded CLIP, so the vision models stay idle.
+            return
+
+        # Same lru_cached loaders services.image_matching uses, so warmup primes
+        # the exact objects the first real ranking request will hit.
         for key, loader in (
             ("dino", _try_load_dino),
-            ("features", _try_load_features),
-            ("segmenter", _try_load_segmenter),
+            ("features", feature_matcher_stack),
+            ("segmenter", rembg_session),
         ):
             _set_many({key: "warming"})
             try:
@@ -85,21 +93,8 @@ def _run_warmup() -> None:
 
 
 def _try_load_dino() -> None:
-    from transformers import AutoModel
-
-    # Use cache only so API warmup does not start a multi-minute download.
-    AutoModel.from_pretrained("facebook/dinov2-small", local_files_only=True)
-
-
-def _try_load_features() -> None:
-    try:
-        from kornia.feature import ALIKED, LightGlue  # noqa: F401
-    except Exception:
-        import lightglue  # noqa: F401
-
-
-def _try_load_segmenter() -> None:
-    import rembg  # noqa: F401
+    dino_processor()
+    dino_model()
 
 
 def start_warmup() -> str:

@@ -13,12 +13,12 @@ from pydantic import BaseModel
 
 from api.deps import get_classifier, get_current_user, get_optional_user, get_repository
 from api.serializers import classification_public, report_public
-from api.upload_images import save_upload_image
 from database.repository import SQLiteRepository
 from models.schemas import LocationGuess, Report, ReportType, User, as_utc
 from samples.presets import PRESETS
 from services.classifier import ReportClassifier
 from utils.config import UPLOAD_DIR, ensure_runtime_directories
+from utils.images import save_upload_image
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
