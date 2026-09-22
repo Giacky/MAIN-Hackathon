@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -24,19 +25,24 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  // Bumped on logout so an in-flight /me cannot sign the user back in.
+  const sessionGen = useRef(0)
 
   const refresh = useCallback(async () => {
+    const gen = sessionGen.current
     try {
       const data = await apiFetch<{ user: User }>('/api/auth/me')
+      if (gen !== sessionGen.current) return
       setUser(data.user)
     } catch (err) {
+      if (gen !== sessionGen.current) return
       if (err instanceof ApiError && err.status === 401) {
         setUser(null)
       } else {
         setUser(null)
       }
     } finally {
-      setLoading(false)
+      if (gen === sessionGen.current) setLoading(false)
     }
   }, [])
 
@@ -70,8 +76,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   )
 
   const logout = useCallback(async () => {
-    await apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' })
+    sessionGen.current += 1
     setUser(null)
+    try {
+      await apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST' })
+    } catch {
+      // The screen already left the account. A down API must not trap the click.
+    }
   }, [])
 
   const value = useMemo(
