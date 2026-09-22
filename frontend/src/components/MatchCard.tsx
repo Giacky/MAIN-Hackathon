@@ -10,24 +10,6 @@ function pct(score: number | null | undefined): number {
   return Math.round(Math.max(0, Math.min(1, score)) * 100)
 }
 
-function Meter({ label, value }: { label: string; value: number | null | undefined }) {
-  const width = pct(value)
-  return (
-    <div className="min-w-0">
-      <div className="mb-1 flex justify-between gap-2 text-[11px] text-muted">
-        <span>{label}</span>
-        <span className="tabular-nums">{value == null ? '—' : `${width}%`}</span>
-      </div>
-      <div className="h-1.5 overflow-hidden rounded-full bg-primary-light">
-        <div
-          className="h-full rounded-full bg-primary transition-[width] duration-200"
-          style={{ width: `${width}%` }}
-        />
-      </div>
-    </div>
-  )
-}
-
 function categoryLooksReal(category?: string | null): boolean {
   return Boolean(category && !/mock|unclassified/i.test(category))
 }
@@ -120,9 +102,7 @@ export function MatchCard({ match, anchorType, hasThread = false, onDismiss }: M
             Combined ranking {overall}%
             {distance ? ` · ${distance}` : ''}
           </p>
-          {verdict ? (
-            <p className="mt-2 text-sm font-medium text-ink">{heading}</p>
-          ) : null}
+          {verdict ? <p className="mt-2 text-sm font-medium text-ink">{heading}</p> : null}
           <p className="mt-1 line-clamp-2 text-sm text-ink">{other.description}</p>
           {other.holding_note ? (
             <p className="mt-1 text-xs text-muted">Where it is now: {other.holding_note}</p>
@@ -134,18 +114,9 @@ export function MatchCard({ match, anchorType, hasThread = false, onDismiss }: M
           ) : null}
         </div>
 
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-          <Meter label="Text" value={match.text_score} />
-          <Meter label="Category" value={match.category_score} />
-          <Meter label="Location" value={match.geo_score} />
-          <Meter label="Time" value={match.time_score} />
-        </div>
-
         {match.image_error ? (
           <p className="text-xs text-muted">Photo model note: {match.image_error}</p>
         ) : null}
-
-        {match.gate_reason ? <p className="text-xs text-muted">Gate: {match.gate_reason}</p> : null}
 
         {dismissError ? <p className="text-xs text-accent">{dismissError}</p> : null}
 
@@ -158,7 +129,7 @@ export function MatchCard({ match, anchorType, hasThread = false, onDismiss }: M
               'min-w-0 flex-1',
             ].join(' ')}
           >
-            {hasThread ? 'Continue pickup' : 'Arrange pickup'}
+            Message them
           </Link>
           {onDismiss ? (
             <button

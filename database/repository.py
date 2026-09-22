@@ -111,6 +111,35 @@ class SQLiteRepository:
             ).fetchall()
         return [row_to_report(row) for row in rows]
 
+    def count_positive_matches_for_reports(
+        self, report_ids: list[str]
+    ) -> dict[str, int]:
+        """Count positive, non-dismissed matches per report in one query."""
+        if not report_ids:
+            return {}
+        placeholders = ",".join("?" * len(report_ids))
+        with connection(self.database_path) as database:
+            rows = database.execute(
+                f"""
+                SELECT report_id, COUNT(*) AS n FROM (
+                    SELECT lost_report_id AS report_id
+                    FROM matches
+                    WHERE lost_report_id IN ({placeholders})
+                      AND COALESCE(dismissed, 0) = 0
+                      AND overall_score > 0
+                    UNION ALL
+                    SELECT found_report_id AS report_id
+                    FROM matches
+                    WHERE found_report_id IN ({placeholders})
+                      AND COALESCE(dismissed, 0) = 0
+                      AND overall_score > 0
+                )
+                GROUP BY report_id
+                """,
+                (*report_ids, *report_ids),
+            ).fetchall()
+        return {str(row["report_id"]): int(row["n"]) for row in rows}
+
     def delete_report(self, report_id: str) -> None:
         with connection(self.database_path) as database:
             database.execute("DELETE FROM reports WHERE id = ?", (report_id,))

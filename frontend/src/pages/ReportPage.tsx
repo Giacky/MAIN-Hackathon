@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ApiError, apiFetch } from '../api/client'
 import type {
   ClassificationResult,
@@ -8,8 +8,6 @@ import type {
   Report,
   ReportType,
 } from '../api/types'
-import { useAuth } from '../auth/AuthContext'
-import { RedirectToLogin } from '../auth/RedirectToLogin'
 import { LocationMap } from '../components/LocationMap'
 import { Button } from '../components/ui/Button'
 import { Input, TextArea } from '../components/ui/Input'
@@ -19,10 +17,18 @@ function toLocalInputValue(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+function toastFor(classification?: ClassificationResult | null): string {
+  const category = classification?.category
+  const label = category && !/mock|unclassified/i.test(category) ? category.toLowerCase() : null
+  return label ? `Saved · classified as ${label}` : 'Report saved'
+}
+
 export function ReportPage() {
-  const { user, loading } = useAuth()
   const navigate = useNavigate()
+  const { id: routeId } = useParams()
   const [params] = useSearchParams()
+  const editId = routeId ?? params.get('id')
+  const isEdit = Boolean(editId)
   const initialType = params.get('type') === 'found' ? 'found' : 'lost'
 
   const [reportType, setReportType] = useState<ReportType>(initialType)
@@ -34,17 +40,22 @@ export function ReportPage() {
   const [radiusMeters, setRadiusMeters] = useState(200)
   const [pins, setPins] = useState<LocationPin[]>([])
   const [files, setFiles] = useState<File[]>([])
+  const [existingImages, setExistingImages] = useState<string[]>([])
   const [presets, setPresets] = useState<Preset[]>([])
   const [presetId, setPresetId] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [samplesOpen, setSamplesOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [loadingEdit, setLoadingEdit] = useState(isEdit)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (isEdit) return
     setReportType(initialType)
-  }, [initialType])
+  }, [initialType, isEdit])
 
   useEffect(() => {
+    if (isEdit) return
     let cancelled = false
     ;(async () => {
       try {
@@ -57,22 +68,68 @@ export function ReportPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [isEdit])
 
-  // Object URLs for the chosen files; revoked when the selection changes.
+  useEffect(() => {
+    if (!editId) {
+      setLoadingEdit(false)
+      return
+    }
+    let cancelled = false
+    setLoadingEdit(true)
+    ;(async () => {
+      try {
+        const data = await apiFetch<{ report: Report }>(`/api/reports/${encodeURIComponent(editId)}`)
+        if (cancelled) return
+        const r = data.report
+        if (r.status !== 'open') {
+          navigate(`/reports/${encodeURIComponent(editId)}`, {
+            replace: true,
+            state: { toast: 'Only open reports can be edited.' },
+          })
+          return
+        }
+        setReportType(r.report_type)
+        setDescription(r.description)
+        setEventTime(toLocalInputValue(new Date(r.event_time)))
+        setPreferAnonymous(r.prefer_anonymous)
+        setContactPhone(r.contact_phone ?? '')
+        setHoldingNote(r.holding_note ?? '')
+        const nextPins =
+          r.locations?.length > 0
+            ? r.locations
+            : r.latitude != null && r.longitude != null
+              ? [
+                  {
+                    latitude: r.latitude,
+                    longitude: r.longitude,
+                    radius_meters: r.radius_meters ?? 200,
+                  },
+                ]
+              : []
+        setPins(nextPins)
+        if (nextPins[0]) setRadiusMeters(nextPins[0].radius_meters)
+        setExistingImages(r.image_urls ?? [])
+        setDetailsOpen(Boolean(r.prefer_anonymous || r.contact_phone || r.holding_note))
+        setError(null)
+      } catch (err) {
+        if (cancelled) return
+        setError(err instanceof ApiError ? err.message : 'Failed to load report')
+      } finally {
+        if (!cancelled) setLoadingEdit(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [editId])
+
   const previews = useMemo(() => files.map((f) => URL.createObjectURL(f)), [files])
   useEffect(() => {
     return () => previews.forEach((u) => URL.revokeObjectURL(u))
   }, [previews])
 
   const preset = presets.find((p) => p.id === presetId) ?? null
-
-  if (loading) {
-    return <p className="text-sm text-muted">Loading…</p>
-  }
-  if (!user) {
-    return <RedirectToLogin />
-  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -84,22 +141,20 @@ export function ReportPage() {
       form.append('description', description.trim())
       form.append('event_time', new Date(eventTime).toISOString())
       form.append('prefer_anonymous', preferAnonymous ? 'true' : 'false')
-      if (contactPhone.trim()) form.append('contact_phone', contactPhone.trim())
-      if (holdingNote.trim()) form.append('holding_note', holdingNote.trim())
+      form.append('contact_phone', contactPhone.trim())
+      form.append('holding_note', holdingNote.trim())
       form.append('locations', JSON.stringify(pins))
-      if (presetId) form.append('sample_preset_id', presetId)
+      if (!isEdit && presetId) form.append('sample_preset_id', presetId)
       files.forEach((f) => form.append('images', f))
 
+      const path = isEdit ? `/api/reports/${encodeURIComponent(editId!)}` : '/api/reports'
       const data = await apiFetch<{
         report: Report
-        classification: ClassificationResult
-      }>('/api/reports', { method: 'POST', body: form })
+        classification?: ClassificationResult
+      }>(path, { method: isEdit ? 'PATCH' : 'POST', body: form })
 
-      const category = data.classification.category
-      const label =
-        category && !/mock|unclassified/i.test(category) ? category.toLowerCase() : null
-      navigate(`/matches?report=${encodeURIComponent(data.report.id)}`, {
-        state: { toast: label ? `Saved · classified as ${label}` : 'Report saved' },
+      navigate(`/reports/${encodeURIComponent(data.report.id)}`, {
+        state: { toast: toastFor(data.classification) },
       })
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not save report')
@@ -135,22 +190,25 @@ export function ReportPage() {
     setFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
-  const hasPhoto = files.length > 0 || Boolean(preset)
+  const hasPhoto = files.length > 0 || Boolean(preset) || existingImages.length > 0
   const isLost = reportType === 'lost'
+
+  if (loadingEdit) {
+    return <p className="text-sm text-muted">Loading report…</p>
+  }
 
   return (
     <div className="space-y-5 animate-in">
       <header>
-        <h1 className="font-display text-2xl text-ink">
-          {isLost ? 'What did you lose?' : 'What did you find?'}
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Start with a photo. Contact email is {user.email}.
-        </p>
+        <h1 className="font-display text-2xl text-ink">{isEdit ? 'Edit report' : 'New report'}</h1>
+        {isEdit && editId ? (
+          <Link to={`/reports/${editId}`} className="mt-2 inline-block text-sm font-medium text-primary">
+            Back
+          </Link>
+        ) : null}
       </header>
 
       <form className="space-y-5" onSubmit={(e) => void onSubmit(e)}>
-        {/* 1. Type */}
         <div className="glass flex gap-1 rounded-full p-1" role="radiogroup" aria-label="Report type">
           {(['lost', 'found'] as const).map((t) => {
             const on = reportType === t
@@ -176,7 +234,6 @@ export function ReportPage() {
           })}
         </div>
 
-        {/* 2. Photos */}
         <section className="space-y-2.5">
           <div className="flex items-baseline justify-between">
             <span className="text-sm font-medium text-ink">Photos</span>
@@ -199,7 +256,7 @@ export function ReportPage() {
                 />
                 <circle cx="12" cy="12.5" r="3" stroke="currentColor" strokeWidth="1.75" />
               </svg>
-              {files.length ? 'Change' : 'Add photo'}
+              {files.length ? 'Change' : isEdit ? 'Add more' : 'Add photo'}
               <input
                 type="file"
                 accept="image/*"
@@ -208,6 +265,15 @@ export function ReportPage() {
                 onChange={(e) => onFiles(e.target.files)}
               />
             </label>
+
+            {existingImages.map((src) => (
+              <div key={src} className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl">
+                <img src={src} alt="" className="h-full w-full object-cover" />
+                <span className="absolute inset-x-0 bottom-0 bg-ink/55 px-1.5 py-0.5 text-center text-[10px] font-medium text-white backdrop-blur-md">
+                  Current
+                </span>
+              </div>
+            ))}
 
             {previews.map((src, i) => (
               <div key={src} className="relative h-24 w-24 shrink-0 overflow-hidden rounded-2xl">
@@ -235,46 +301,65 @@ export function ReportPage() {
             ) : null}
           </div>
 
-          {presets.length > 0 ? (
-            <div className="space-y-1.5">
-              <span className="text-xs font-medium text-muted">Try a sample</span>
-              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                {presets.map((p) => {
-                  const on = p.id === presetId
-                  return (
-                    <button
-                      key={p.id}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => applyPreset(p.id)}
-                      className={[
-                        'flex w-[5.5rem] shrink-0 flex-col gap-1 rounded-2xl border p-1 text-left transition duration-150 active:scale-[0.98]',
-                        on
-                          ? 'border-primary/50 bg-primary-light/70'
-                          : 'border-white/60 bg-card/50 hover:bg-card/70',
-                      ].join(' ')}
-                    >
-                      <img
-                        src={p.image_url}
-                        alt=""
-                        className="aspect-square w-full rounded-xl object-cover"
-                      />
-                      <span className="flex items-center gap-1 px-1 pb-0.5">
-                        <span
-                          className={`h-1.5 w-1.5 shrink-0 rounded-full ${p.report_type === 'lost' ? 'bg-accent' : 'bg-primary'}`}
-                          aria-hidden
-                        />
-                        <span className="truncate text-[11px] leading-tight text-ink">{p.label}</span>
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
+          {!isEdit && presets.length > 0 ? (
+            <div className="glass overflow-hidden">
+              <button
+                type="button"
+                aria-expanded={samplesOpen}
+                onClick={() => setSamplesOpen((o) => !o)}
+                className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-ink"
+              >
+                <span>
+                  Try a sample
+                  <span className="ml-2 text-xs font-normal text-muted">
+                    {preset ? preset.label : 'optional demo photos'}
+                  </span>
+                </span>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  aria-hidden
+                  className={`text-muted transition-transform duration-200 ${samplesOpen ? 'rotate-180' : ''}`}
+                >
+                  <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {samplesOpen ? (
+                <div className="flex gap-2 overflow-x-auto no-scrollbar border-t border-white/60 px-3 py-3 animate-in">
+                  {presets.map((p) => {
+                    const on = p.id === presetId
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => applyPreset(p.id)}
+                        className={[
+                          'flex w-[5.5rem] shrink-0 flex-col gap-1 rounded-2xl border p-1 text-left transition duration-150 active:scale-[0.98]',
+                          on
+                            ? 'border-primary/50 bg-primary-light/70'
+                            : 'border-white/60 bg-card/50 hover:bg-card/70',
+                        ].join(' ')}
+                      >
+                        <img src={p.image_url} alt="" className="aspect-square w-full rounded-xl object-cover" />
+                        <span className="flex items-center gap-1 px-1 pb-0.5">
+                          <span
+                            className={`h-1.5 w-1.5 shrink-0 rounded-full ${p.report_type === 'lost' ? 'bg-accent' : 'bg-primary'}`}
+                            aria-hidden
+                          />
+                          <span className="truncate text-[11px] leading-tight text-ink">{p.label}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </section>
 
-        {/* 3. Description */}
         <TextArea
           label="Description"
           value={description}
@@ -289,7 +374,6 @@ export function ReportPage() {
           }
         />
 
-        {/* 4. Location */}
         <div>
           <p className="mb-2 text-sm font-medium text-ink">
             {isLost ? 'Where you last had it' : 'Where you found it'}
@@ -306,7 +390,6 @@ export function ReportPage() {
           />
         </div>
 
-        {/* 5. When */}
         <Input
           label="When"
           type="datetime-local"
@@ -315,7 +398,6 @@ export function ReportPage() {
           required
         />
 
-        {/* 6. Details (collapsed) */}
         <div className="glass overflow-hidden">
           <button
             type="button"
@@ -385,7 +467,7 @@ export function ReportPage() {
           variant={isLost ? 'accent' : 'primary'}
           disabled={busy || !description.trim()}
         >
-          {busy ? 'Saving…' : isLost ? 'Save lost report' : 'Save found report'}
+          {busy ? 'Saving…' : isEdit ? 'Save changes' : isLost ? 'Save lost report' : 'Save found report'}
         </Button>
       </form>
     </div>

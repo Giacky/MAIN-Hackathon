@@ -60,6 +60,33 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
+    def _report_form(
+        self,
+        *,
+        report_type: str = "lost",
+        description: str = "Black leather wallet. Lost in the library.",
+        event_time: str | None = None,
+        prefer_anonymous: str = "false",
+        contact_phone: str | None = "0612345678",
+        holding_note: str | None = "Ask at the front desk",
+        locations: str | None = None,
+    ) -> dict[str, str]:
+        payload = {
+            "report_type": report_type,
+            "description": description,
+            "event_time": event_time or datetime.now(timezone.utc).isoformat(),
+            "prefer_anonymous": prefer_anonymous,
+            "locations": locations
+            or json.dumps(
+                [{"latitude": 50.8514, "longitude": 5.6900, "radius_meters": 150}]
+            ),
+        }
+        if contact_phone is not None:
+            payload["contact_phone"] = contact_phone
+        if holding_note is not None:
+            payload["holding_note"] = holding_note
+        return payload
+
     def test_register_and_login_cookie(self) -> None:
         register = self.client.post(
             "/api/auth/register",
@@ -181,6 +208,42 @@ class ApiTests(unittest.TestCase):
         for report in response.json()["reports"]:
             self.assertNotIn("contact_email", report)
             self.assertNotIn("contact_phone", report)
+            self.assertNotIn("match_count", report)
+
+    def test_mine_list_includes_positive_match_count(self) -> None:
+        self._login("alex@demo.local")
+        expected = sum(
+            1
+            for match in self.repository.list_matches_for_report(DEMO_LOST_ID)
+            if match.overall_score > 0
+        )
+        self.assertGreater(expected, 0)
+
+        mine = self.client.get("/api/reports?scope=mine")
+        self.assertEqual(mine.status_code, 200, mine.text)
+        by_id = {report["id"]: report for report in mine.json()["reports"]}
+        self.assertIn(DEMO_LOST_ID, by_id)
+        for report in mine.json()["reports"]:
+            self.assertIn("match_count", report)
+            self.assertIsInstance(report["match_count"], int)
+        self.assertEqual(by_id[DEMO_LOST_ID]["match_count"], expected)
+
+        detail = self.client.get(f"/api/reports/{DEMO_LOST_ID}")
+        self.assertEqual(detail.status_code, 200, detail.text)
+        self.assertNotIn("match_count", detail.json()["report"])
+
+        dismissed = self.client.patch(
+            "/api/matches/dismiss",
+            json={
+                "lost_report_id": DEMO_LOST_ID,
+                "found_report_id": DEMO_FOUND_LIBRARY_ID,
+            },
+        )
+        self.assertEqual(dismissed.status_code, 200, dismissed.text)
+        after = self.client.get("/api/reports?scope=mine")
+        self.assertEqual(after.status_code, 200, after.text)
+        after_by_id = {report["id"]: report for report in after.json()["reports"]}
+        self.assertEqual(after_by_id[DEMO_LOST_ID]["match_count"], expected - 1)
 
     def test_seeded_matches_are_ready_and_ordered(self) -> None:
         self._login("alex@demo.local")
@@ -404,6 +467,151 @@ class ApiTests(unittest.TestCase):
             headers={"X-Demo-Reset": "demo"},
         )
         self.assertEqual(response.status_code, 403)
+
+    def test_patch_report_updates_fields_and_returns_report(self) -> None:
+        self._login("alex@demo.local")
+        before = self.client.get(f"/api/reports/{DEMO_LOST_ID}")
+        self.assertEqual(before.status_code, 200, before.text)
+        previous_images = before.json()["report"]["image_urls"]
+        self.assertTrue(previous_images)
+
+        event_time = datetime(2026, 3, 14, 15, 30, tzinfo=timezone.utc).isoformat()
+        locations = json.dumps(
+            [{"latitude": 50.8510, "longitude": 5.6910, "radius_meters": 80}]
+        )
+        response = self.client.patch(
+            f"/api/reports/{DEMO_LOST_ID}",
+            data=self._report_form(
+                description="Navy card holder left near the stacks",
+                event_time=event_time,
+                prefer_anonymous="true",
+                contact_phone="0699988877",
+                holding_note="Still at the library desk",
+                locations=locations,
+            ),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        report = payload["report"]
+        self.assertEqual(report["id"], DEMO_LOST_ID)
+        self.assertEqual(report["description"], "Navy card holder left near the stacks")
+        self.assertEqual(report["report_type"], "lost")
+        self.assertEqual(report["prefer_anonymous"], True)
+        self.assertEqual(report["contact_phone"], "0699988877")
+        self.assertEqual(report["holding_note"], "Still at the library desk")
+        self.assertEqual(report["category"], "unclassified (mock)")
+        self.assertEqual(report["event_time"], event_time)
+        self.assertEqual(report["latitude"], 50.8510)
+        self.assertEqual(report["longitude"], 5.6910)
+        self.assertEqual(report["radius_meters"], 80)
+        self.assertEqual(len(report["locations"]), 1)
+        self.assertEqual(report["locations"][0]["latitude"], 50.8510)
+        self.assertEqual(report["image_urls"], previous_images)
+        self.assertIn("classification", payload)
+        self.assertEqual(payload["classification"]["category"], "unclassified (mock)")
+
+        stored = self.repository.get_report(DEMO_LOST_ID)
+        assert stored is not None
+        self.assertEqual(stored.description, "Navy card holder left near the stacks")
+        self.assertEqual(stored.contact_phone, "0699988877")
+        self.assertTrue(stored.prefer_anonymous)
+
+        image = Image.new("RGB", (400, 300), color=(10, 80, 120))
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG")
+        buffer.seek(0)
+        replaced = self.client.patch(
+            f"/api/reports/{DEMO_LOST_ID}",
+            data=self._report_form(
+                description="Navy card holder left near the stacks",
+                event_time=event_time,
+                prefer_anonymous="true",
+                contact_phone="0699988877",
+                holding_note="Still at the library desk",
+                locations=locations,
+            ),
+            files={"images": ("holder.jpg", buffer, "image/jpeg")},
+        )
+        self.assertEqual(replaced.status_code, 200, replaced.text)
+        new_urls = replaced.json()["report"]["image_urls"]
+        self.assertEqual(new_urls, [f"/api/reports/{DEMO_LOST_ID}/images/0"])
+        blob = self.client.get(new_urls[0])
+        self.assertEqual(blob.status_code, 200)
+        self.assertTrue(blob.content.startswith(b"\xff\xd8"))
+
+    def test_patch_report_owner_only(self) -> None:
+        self._login("sam@demo.local")
+        forbidden = self.client.patch(
+            f"/api/reports/{DEMO_LOST_ID}",
+            data=self._report_form(),
+        )
+        self.assertEqual(forbidden.status_code, 403)
+
+        missing = self.client.patch(
+            "/api/reports/does-not-exist",
+            data=self._report_form(),
+        )
+        self.assertEqual(missing.status_code, 404)
+
+    def test_patch_closed_report_is_400(self) -> None:
+        self._login("alex@demo.local")
+        closed = self.client.patch(
+            f"/api/reports/{DEMO_LOST_ID}/status",
+            json={"status": "closed"},
+        )
+        self.assertEqual(closed.status_code, 200, closed.text)
+
+        patched = self.client.patch(
+            f"/api/reports/{DEMO_LOST_ID}",
+            data=self._report_form(),
+        )
+        self.assertEqual(patched.status_code, 400)
+
+        recovered = self.repository.mark_recovered(DEMO_LOST_EARBUDS_ID)
+        self.assertTrue(recovered)
+        recovered_patch = self.client.patch(
+            f"/api/reports/{DEMO_LOST_EARBUDS_ID}",
+            data=self._report_form(description="White AirPods case. Lost at the bus stop."),
+        )
+        self.assertEqual(recovered_patch.status_code, 400)
+
+    def test_patch_report_enqueues_rematch_keeps_dismissed(self) -> None:
+        self._login("alex@demo.local")
+        before = self.client.get(f"/api/matches?report_id={DEMO_LOST_ID}")
+        self.assertEqual(before.status_code, 200, before.text)
+        self.assertEqual(before.json()["status"], "ready")
+        found_ids = [match["found"]["id"] for match in before.json()["matches"]]
+        self.assertIn(DEMO_FOUND_LIBRARY_ID, found_ids)
+        self.assertIn(DEMO_FOUND_HOTEL_ID, found_ids)
+
+        dismissed = self.client.patch(
+            "/api/matches/dismiss",
+            json={
+                "lost_report_id": DEMO_LOST_ID,
+                "found_report_id": DEMO_FOUND_LIBRARY_ID,
+            },
+        )
+        self.assertEqual(dismissed.status_code, 200, dismissed.text)
+        self.assertTrue(dismissed.json()["dismissed"])
+
+        patched = self.client.patch(
+            f"/api/reports/{DEMO_LOST_ID}",
+            data=self._report_form(
+                description="Black leather wallet near the library stairs",
+                holding_note="Updated after rematch",
+            ),
+        )
+        self.assertEqual(patched.status_code, 200, patched.text)
+        self.assertEqual(
+            patched.json()["report"]["holding_note"], "Updated after rematch"
+        )
+
+        rematched = self.client.get(f"/api/matches?report_id={DEMO_LOST_ID}")
+        self.assertEqual(rematched.status_code, 200, rematched.text)
+        self.assertEqual(rematched.json()["status"], "ready")
+        rematch_ids = [match["found"]["id"] for match in rematched.json()["matches"]]
+        self.assertNotIn(DEMO_FOUND_LIBRARY_ID, rematch_ids)
+        self.assertIn(DEMO_FOUND_HOTEL_ID, rematch_ids)
 
     def test_close_report_drops_from_open_and_ranking(self) -> None:
         self._login("sam@demo.local")

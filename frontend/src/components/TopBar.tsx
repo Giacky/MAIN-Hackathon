@@ -3,9 +3,11 @@ import { useAuth } from '../auth/AuthContext'
 
 function titleFor(pathname: string): string {
   if (pathname === '/') return 'Lost & Found'
-  if (pathname.startsWith('/report')) return 'Report'
-  if (pathname.startsWith('/matches')) return 'Matches'
-  if (pathname.startsWith('/map')) return 'Map'
+  if (/^\/reports\/[^/]+\/edit/.test(pathname)) return 'Edit report'
+  if (/^\/reports\/[^/]+/.test(pathname)) return 'Report'
+  if (pathname.startsWith('/reports')) return 'My items'
+  if (pathname.startsWith('/report')) return 'New report'
+  if (pathname.startsWith('/around') || pathname.startsWith('/map')) return 'Map'
   if (pathname.startsWith('/pickup')) return 'Pickup'
   if (pathname.startsWith('/account')) return 'Account'
   return 'Lost & Found'
@@ -61,7 +63,7 @@ export function TopBar() {
           </Link>
         ) : (
           <Link
-            to="/account"
+            to="/login"
             className="rounded-full bg-primary-light px-3.5 py-1.5 text-[13px] font-semibold text-primary transition duration-150 hover:brightness-95"
           >
             Log in

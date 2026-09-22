@@ -60,6 +60,7 @@ def report_public(
     report: Report,
     *,
     include_contact: bool,
+    match_count: int | None = None,
 ) -> dict[str, Any]:
     locations = [
         {
@@ -98,6 +99,8 @@ def report_public(
     if include_contact:
         payload["contact_email"] = report.contact_email
         payload["contact_phone"] = report.contact_phone
+    if match_count is not None:
+        payload["match_count"] = match_count
     return payload
 
 

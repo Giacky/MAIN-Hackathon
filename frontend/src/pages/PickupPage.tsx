@@ -67,10 +67,10 @@ export function PickupLandingPage() {
         <div className="glass space-y-3 px-4 py-6 text-center">
           <p className="text-sm text-ink">No pickups yet.</p>
           <p className="text-xs text-muted">
-            Open one of your matches and tap Arrange pickup to start a thread.
+            Open one of your reports and tap Message them on a match to start a thread.
           </p>
-          <Link to="/matches" className={[buttonBase, buttonVariants.primary, 'px-5 py-2.5 text-sm'].join(' ')}>
-            Go to matches
+          <Link to="/reports" className={[buttonBase, buttonVariants.primary, 'px-5 py-2.5 text-sm'].join(' ')}>
+            Go to reports
           </Link>
         </div>
       ) : (
@@ -129,8 +129,8 @@ export function PickupPage() {
     return (
       <div className="space-y-3 animate-in">
         <p className="text-sm text-accent">{error}</p>
-        <Link to="/matches" className="text-sm font-medium text-primary">
-          Back to matches
+        <Link to="/reports" className="text-sm font-medium text-primary">
+          Back to reports
         </Link>
       </div>
     )
@@ -238,8 +238,18 @@ export function PickupPage() {
       ) : null}
 
       <div className="space-y-2">
-        <ItemCard report={data.lost} />
-        <ItemCard report={data.found} />
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">Both items</p>
+        <div className="space-y-1">
+          <p className="text-xs text-muted">Yours</p>
+          <ItemCard
+            report={data.role === 'lost' ? data.lost : data.found}
+            href={`/reports/${data.role === 'lost' ? data.lost.id : data.found.id}`}
+          />
+        </div>
+        <div className="space-y-1">
+          <p className="text-xs text-muted">Theirs</p>
+          <ItemCard report={data.role === 'lost' ? data.found : data.lost} />
+        </div>
       </div>
 
       <Card>
@@ -399,8 +409,11 @@ export function PickupPage() {
             </Link>
           ) : (
             <>
-              <Link to="/matches" className={[buttonBase, buttonVariants.ghost, 'rounded-full px-4 py-2.5 text-sm'].join(' ')}>
-                Matches
+              <Link
+                to={`/reports/${data.role === 'lost' ? data.lost.id : data.found.id}`}
+                className={[buttonBase, buttonVariants.ghost, 'rounded-full px-4 py-2.5 text-sm'].join(' ')}
+              >
+                Your report
               </Link>
               <Button
                 className="flex-1 rounded-full py-2.5"

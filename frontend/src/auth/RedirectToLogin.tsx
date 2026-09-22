@@ -1,16 +1,25 @@
 import { Navigate, useLocation } from 'react-router-dom'
 
-/** Builds `/account?next=<path>` so the account page can return here after login. */
+const AUTH_PREFIXES = ['/login', '/register']
+
+function isAuthPath(path: string): boolean {
+  return AUTH_PREFIXES.some((p) => path === p || path.startsWith(`${p}?`))
+}
+
+/** Builds `/login?next=<path>` so login can return here after the session exists. */
 export function loginPath(pathname: string, search = ''): string {
   const next = `${pathname}${search}`
-  if (!next || next === '/' || next.startsWith('/account')) return '/account'
-  return `/account?next=${encodeURIComponent(next)}`
+  if (!next || next === '/' || isAuthPath(next) || next.startsWith('/login') || next.startsWith('/register')) {
+    return '/login'
+  }
+  return `/login?next=${encodeURIComponent(next)}`
 }
 
 /** Only allow same-origin relative paths as a return target. */
 export function safeNext(next: string | null): string | null {
   if (!next) return null
   if (!next.startsWith('/') || next.startsWith('//')) return null
+  if (next.startsWith('/login') || next.startsWith('/register')) return null
   return next
 }
 

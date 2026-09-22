@@ -3,8 +3,7 @@ import { useAlerts } from '../auth/AlertsContext'
 
 const items = [
   { to: '/', label: 'Home', icon: HomeIcon, end: true },
-  { to: '/report', label: 'Report', icon: ReportIcon },
-  { to: '/matches', label: 'Matches', icon: MatchesIcon },
+  { to: '/reports', label: 'My items', icon: ReportsIcon },
   { to: '/map', label: 'Map', icon: MapIcon },
 ] as const
 
@@ -22,7 +21,7 @@ function HomeIcon({ filled }: { filled: boolean }) {
   )
 }
 
-function ReportIcon({ filled }: { filled: boolean }) {
+function ReportsIcon({ filled }: { filled: boolean }) {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
       <rect
@@ -45,30 +44,6 @@ function ReportIcon({ filled }: { filled: boolean }) {
   )
 }
 
-function MatchesIcon({ filled }: { filled: boolean }) {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <circle
-        cx="9"
-        cy="10"
-        r="4"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        fill={filled ? 'currentColor' : 'none'}
-      />
-      <circle
-        cx="15"
-        cy="14"
-        r="4"
-        stroke="currentColor"
-        strokeWidth="1.75"
-        fill={filled ? 'currentColor' : 'none'}
-        opacity={filled ? 0.7 : 1}
-      />
-    </svg>
-  )
-}
-
 function MapIcon({ filled }: { filled: boolean }) {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -83,7 +58,7 @@ function MapIcon({ filled }: { filled: boolean }) {
   )
 }
 
-/** Floating glass capsule with four tabs; the active tab is a primary-light pill. */
+/** Floating glass capsule with three tabs; the active tab is a primary-light pill. */
 export function BottomNav() {
   const { unreadCount } = useAlerts()
 
@@ -106,7 +81,7 @@ export function BottomNav() {
               <>
                 <span className="relative inline-flex">
                   <item.icon filled={isActive} />
-                  {item.to === '/matches' && unreadCount > 0 ? (
+                  {item.to === '/reports' && unreadCount > 0 ? (
                     <span
                       className="absolute -right-2.5 -top-1 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] font-bold leading-4 text-white shadow-[0_2px_8px_rgba(242,140,104,.45)]"
                       aria-label={`${unreadCount} unread ${unreadCount === 1 ? 'alert' : 'alerts'}`}

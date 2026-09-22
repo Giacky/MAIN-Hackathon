@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { ApiError, apiFetch } from '../api/client'
-import type { Report, ReportType } from '../api/types'
+import { fetchThreads } from '../api/coordination'
+import type { CoordinationThread, Report, ReportType } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
+import { RedirectToLogin } from '../auth/RedirectToLogin'
+import { ItemCard } from '../components/ItemCard'
 import { LocationMap } from '../components/LocationMap'
+import { fieldClass } from '../components/ui/Input'
 
 function unwrapReports(data: { reports?: Report[] } | Report[]): Report[] {
   return Array.isArray(data) ? data : (data.reports ?? [])
@@ -15,10 +18,12 @@ const legend: { kind: ReportType; label: string; on: string; dot: string }[] = [
 ]
 
 export function MapPage() {
-  const { user } = useAuth()
+  const { user, loading } = useAuth()
   const [reports, setReports] = useState<Report[] | null>(null)
   const [mineIds, setMineIds] = useState<ReadonlySet<string>>(() => new Set())
+  const [threads, setThreads] = useState<CoordinationThread[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
   const [visible, setVisible] = useState<Record<ReportType, boolean>>({ lost: true, found: true })
 
   useEffect(() => {
@@ -42,16 +47,21 @@ export function MapPage() {
   useEffect(() => {
     if (!user) {
       setMineIds(new Set())
+      setThreads([])
       return
     }
     let cancelled = false
     ;(async () => {
       try {
-        const data = await apiFetch<{ reports?: Report[] } | Report[]>('/api/reports?scope=mine')
+        const [mine, list] = await Promise.all([
+          apiFetch<{ reports?: Report[] } | Report[]>('/api/reports?scope=mine'),
+          fetchThreads(),
+        ])
         if (cancelled) return
-        setMineIds(new Set(unwrapReports(data).map((r) => r.id)))
+        setMineIds(new Set(unwrapReports(mine).map((r) => r.id)))
+        setThreads(list)
       } catch {
-        /* popups simply omit the "See matches" link */
+        /* list cards simply omit the yours / message links */
       }
     })()
     return () => {
@@ -59,34 +69,67 @@ export function MapPage() {
     }
   }, [user])
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return (reports ?? []).filter((r) => {
+      if (!visible[r.report_type === 'lost' ? 'lost' : 'found']) return false
+      if (!q) return true
+      const hay = `${r.description} ${r.category ?? ''}`.toLowerCase()
+      return hay.includes(q)
+    })
+  }, [reports, visible, query])
+
   const withCoords = useMemo(
-    () => reports?.filter((r) => r.latitude != null && r.longitude != null) ?? [],
-    [reports],
-  )
-  const shown = useMemo(
-    () => withCoords.filter((r) => visible[r.report_type === 'lost' ? 'lost' : 'found']),
-    [withCoords, visible],
+    () => filtered.filter((r) => r.latitude != null && r.longitude != null),
+    [filtered],
   )
   const counts = useMemo(
     () => ({
-      lost: withCoords.filter((r) => r.report_type === 'lost').length,
-      found: withCoords.filter((r) => r.report_type === 'found').length,
+      lost: (reports ?? []).filter((r) => r.report_type === 'lost').length,
+      found: (reports ?? []).filter((r) => r.report_type === 'found').length,
     }),
-    [withCoords],
+    [reports],
   )
+  const threadByReport = useMemo(() => {
+    const map = new Map<string, CoordinationThread>()
+    for (const t of threads) {
+      if (t.recovered) continue
+      map.set(t.lost.id, t)
+      map.set(t.found.id, t)
+    }
+    return map
+  }, [threads])
 
   function toggle(kind: ReportType) {
     setVisible((v) => ({ ...v, [kind]: !v[kind] }))
   }
 
+  if (loading) return <p className="text-sm text-muted">Loading…</p>
+  if (!user) return <RedirectToLogin />
+
   return (
     <div className="space-y-4 animate-in">
-      <header>
-        <h1 className="font-display text-2xl text-ink">Map</h1>
-        <p className="mt-1 text-sm text-muted">
-          Open reports around Maastricht. Coral is lost, teal is found. Tap a pin for details.
-        </p>
-      </header>
+      <label className="relative block">
+        <span className="sr-only">Search</span>
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden
+          className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-muted"
+        >
+          <circle cx="11" cy="11" r="6.25" stroke="currentColor" strokeWidth="1.75" />
+          <path d="m16 16 4 4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        </svg>
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Wallet, keys…"
+          className={`${fieldClass} pl-10`}
+        />
+      </label>
 
       <div className="flex gap-2" role="group" aria-label="Filter pins">
         {legend.map((item) => {
@@ -113,16 +156,45 @@ export function MapPage() {
       {error ? (
         <p className="text-sm text-accent">{error}</p>
       ) : reports == null ? (
-        <p className="text-sm text-muted">Loading open reports…</p>
-      ) : withCoords.length === 0 ? (
-        <p className="text-sm text-muted">
-          Nothing with coordinates yet.{' '}
-          <Link to="/report" className="font-medium text-primary">
-            Add a report
-          </Link>
-        </p>
+        <p className="text-sm text-muted">Loading…</p>
       ) : (
-        <LocationMap mode="view" reports={shown} mineIds={mineIds} className="h-[28rem]" />
+        <>
+          {withCoords.length > 0 ? (
+            <LocationMap mode="view" reports={withCoords} mineIds={mineIds} className="h-[22rem]" />
+          ) : (
+            <p className="text-sm text-muted">No pins for this filter.</p>
+          )}
+
+          <div className="space-y-2">
+            {filtered.length === 0 ? (
+              <p className="text-sm text-muted">Nothing matches.</p>
+            ) : (
+              filtered.map((r) => {
+                const mine = mineIds.has(r.id)
+                const thread = threadByReport.get(r.id)
+                const href = mine
+                  ? `/reports/${r.id}`
+                  : thread
+                    ? `/pickup/${thread.lost.id}/${thread.found.id}`
+                    : undefined
+                return (
+                  <ItemCard
+                    key={r.id}
+                    report={r}
+                    href={href}
+                    trailing={
+                      mine ? (
+                        <span className="text-[11px] font-semibold text-primary">Yours</span>
+                      ) : thread ? (
+                        <span className="text-[11px] font-semibold text-primary">Message</span>
+                      ) : undefined
+                    }
+                  />
+                )
+              })
+            )}
+          </div>
+        </>
       )}
     </div>
   )

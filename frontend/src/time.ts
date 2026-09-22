@@ -14,6 +14,19 @@ export function timeAgo(iso?: string | null): string | null {
   return new Date(then).toLocaleDateString()
 }
 
+/** Compact absolute time, e.g. `21 Sep, 21:52`. */
+export function formatShortWhen(iso?: string | null): string | null {
+  if (!iso) return null
+  const t = Date.parse(iso)
+  if (Number.isNaN(t)) return null
+  const d = new Date(t)
+  const day = d.getDate()
+  const month = d.toLocaleString('en-GB', { month: 'short' })
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${day} ${month}, ${hh}:${mm}`
+}
+
 /** First line of a description, truncated for compact cards. */
 export function firstLine(text: string, max = 80): string {
   const line = text.split('\n')[0]?.trim() ?? ''

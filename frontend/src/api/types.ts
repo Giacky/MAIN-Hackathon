@@ -43,6 +43,8 @@ export interface Report {
   image_urls: string[]
   contact_email?: string | null
   contact_phone?: string | null
+  /** Positive undismissed matches; present on GET /api/reports?scope=mine. */
+  match_count?: number
 }
 
 export interface ClassificationResult {

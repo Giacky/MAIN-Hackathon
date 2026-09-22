@@ -328,16 +328,17 @@ function ReportPopup({
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex items-center gap-1.5">
           <Badge tone={report.report_type === 'lost' ? 'lost' : 'found'}>{report.report_type}</Badge>
+          {mine ? <Badge tone="ink">Yours</Badge> : null}
           {when ? <span className="text-[11px] text-muted">{when}</span> : null}
         </div>
         <p className="line-clamp-2 text-[13px] leading-snug text-ink">{firstLine(report.description, 90)}</p>
         <p className="mt-0.5 text-[11px] text-muted">Within {Math.round(radiusMeters)} m</p>
         {mine ? (
           <Link
-            to={`/matches?report=${report.id}`}
+            to={`/reports/${report.id}`}
             className="mt-1.5 inline-block text-[13px] font-semibold text-primary"
           >
-            See matches
+            View report
           </Link>
         ) : null}
       </div>
