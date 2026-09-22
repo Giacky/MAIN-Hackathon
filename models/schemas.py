@@ -27,6 +27,7 @@ class ReportType(str, Enum):
 class ReportStatus(str, Enum):
     OPEN = "open"
     RECOVERED = "recovered"
+    CLOSED = "closed"
 
 
 class MeetupStatus(str, Enum):
@@ -106,11 +107,23 @@ class MatchResult:
     category_score: float | None = None
     distance_meters: float | None = None
     image_error: str | None = None
-    # Optional DINOv2 + LightGlue evidence (not persisted to SQLite).
+    # Optional DINOv2 + LightGlue evidence (persisted with the pair scores).
     visual_shortlisted: bool | None = None
     visual_dino_score: float | None = None
     visual_inliers: int | None = None
     visual_inlier_ratio: float | None = None
+
+
+@dataclass(slots=True)
+class Notification:
+    user_id: str
+    kind: str
+    lost_report_id: str
+    found_report_id: str
+    overall_score: float
+    id: str = field(default_factory=lambda: str(uuid4()))
+    created_at: datetime = field(default_factory=utc_now)
+    read_at: datetime | None = None
 
 
 @dataclass(slots=True)

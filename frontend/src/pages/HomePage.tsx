@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { closeReport, isUnreadNotification } from '../api/alerts'
 import { ApiError, apiFetch } from '../api/client'
 import { fetchThreads } from '../api/coordination'
-import type { CoordinationThread, Report } from '../api/types'
+import type { CoordinationThread, MatchNotification, Report } from '../api/types'
+import { useAlerts } from '../auth/AlertsContext'
 import { useAuth } from '../auth/AuthContext'
 import { ItemCard } from '../components/ItemCard'
 import { PickupThreadCard } from '../components/PickupThreadCard'
@@ -13,11 +15,26 @@ function unwrapReports(data: { reports?: Report[] } | Report[]): Report[] {
   return Array.isArray(data) ? data : (data.reports ?? [])
 }
 
+function viewerReportId(n: MatchNotification, mineIds: ReadonlySet<string>): string | null {
+  if (n.report_id && (mineIds.size === 0 || mineIds.has(n.report_id))) return n.report_id
+  if (mineIds.has(n.lost_report_id)) return n.lost_report_id
+  if (mineIds.has(n.found_report_id)) return n.found_report_id
+  return n.report_id ?? null
+}
+
+function otherSnippet(n: MatchNotification, myId: string | null): Report | null {
+  if (myId === n.lost_report_id) return n.found ?? null
+  if (myId === n.found_report_id) return n.lost ?? null
+  return n.found ?? n.lost ?? null
+}
+
 export function HomePage() {
   const { user, loading } = useAuth()
+  const { notifications } = useAlerts()
   const [mine, setMine] = useState<Report[] | null>(null)
   const [threads, setThreads] = useState<CoordinationThread[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [closingId, setClosingId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) {
@@ -46,8 +63,42 @@ export function HomePage() {
     }
   }, [user])
 
+  async function onCloseReport(reportId: string) {
+    setClosingId(reportId)
+    try {
+      await closeReport(reportId)
+      setMine((prev) =>
+        prev ? prev.map((r) => (r.id === reportId ? { ...r, status: 'closed' } : r)) : prev,
+      )
+      setError(null)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not close report')
+    } finally {
+      setClosingId(null)
+    }
+  }
+
   const open = mine?.filter((r) => r.status === 'open') ?? []
   const active = threads?.filter((t) => !t.recovered) ?? []
+  const mineIds = useMemo(() => new Set((mine ?? []).map((r) => r.id)), [mine])
+
+  const possibleGroups = useMemo(() => {
+    const unread = notifications.filter(isUnreadNotification)
+    const groups: { reportId: string | null; items: MatchNotification[] }[] = []
+    const index = new Map<string, number>()
+    for (const n of unread) {
+      const myId = viewerReportId(n, mineIds)
+      const key = myId ?? `pair:${n.lost_report_id}:${n.found_report_id}`
+      const existing = index.get(key)
+      if (existing != null) {
+        groups[existing].items.push(n)
+      } else {
+        index.set(key, groups.length)
+        groups.push({ reportId: myId, items: [n] })
+      }
+    }
+    return groups
+  }, [notifications, mineIds])
 
   return (
     <div className="space-y-6 animate-in">
@@ -90,6 +141,73 @@ export function HomePage() {
 
       {user ? (
         <>
+          {possibleGroups.length > 0 ? (
+            <section className="space-y-3">
+              <div className="flex items-baseline justify-between">
+                <h2 className="font-display text-lg text-ink">Possible matches</h2>
+                <Link to="/matches" className="text-sm font-medium text-primary">
+                  See all
+                </Link>
+              </div>
+              <div className="space-y-2">
+                {possibleGroups.slice(0, 4).map((group) => {
+                  const n = group.items[0]
+                  const myId = group.reportId
+                  const mineReport = myId ? mine?.find((r) => r.id === myId) : undefined
+                  const other = otherSnippet(n, myId)
+                  const href = myId ? `/matches?report=${myId}` : '/matches'
+                  const photo = other?.image_urls?.[0] ?? mineReport?.image_urls?.[0]
+                  const title =
+                    other?.description ?? mineReport?.description ?? 'Possible match'
+                  const best = Math.max(...group.items.map((item) => item.overall_score ?? 0))
+                  const count = group.items.length
+                  return (
+                    <Link key={n.id} to={href} className="block">
+                      <Card padded={false} className="overflow-hidden hover:bg-card/70 active:scale-[0.99]">
+                        <div className="flex items-center gap-3 p-3">
+                          <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-primary-light/60">
+                            {photo ? (
+                              <img src={photo} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-[11px] text-muted">
+                                No photo
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="line-clamp-2 text-sm leading-snug text-ink">{title}</p>
+                            <p className="mt-0.5 text-xs text-muted">
+                              {count === 1 ? 'Possible match' : `${count} possible matches`}
+                              {best > 0
+                                ? ` · Combined ranking ${Math.round(Math.min(1, best) * 100)}%`
+                                : ''}
+                            </p>
+                          </div>
+                          <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            aria-hidden
+                            className="text-muted"
+                          >
+                            <path
+                              d="m9 6 6 6-6 6"
+                              stroke="currentColor"
+                              strokeWidth="1.75"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </div>
+                      </Card>
+                    </Link>
+                  )
+                })}
+              </div>
+            </section>
+          ) : null}
+
           <section className="space-y-3">
             <div className="flex items-baseline justify-between">
               <h2 className="font-display text-lg text-ink">Active pickups</h2>
@@ -137,7 +255,13 @@ export function HomePage() {
             ) : (
               <div className="space-y-2">
                 {open.map((r) => (
-                  <ItemCard key={r.id} report={r} href={`/matches?report=${r.id}`} />
+                  <ItemCard
+                    key={r.id}
+                    report={r}
+                    matchesHref={`/matches?report=${r.id}`}
+                    onClose={() => void onCloseReport(r.id)}
+                    closing={closingId === r.id}
+                  />
                 ))}
               </div>
             )}

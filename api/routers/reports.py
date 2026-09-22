@@ -14,9 +14,10 @@ from pydantic import BaseModel
 from api.deps import get_classifier, get_current_user, get_optional_user, get_repository
 from api.serializers import classification_public, report_public
 from database.repository import SQLiteRepository
-from models.schemas import LocationGuess, Report, ReportType, User, as_utc
+from models.schemas import LocationGuess, Report, ReportStatus, ReportType, User, as_utc
 from samples.presets import PRESETS
 from services.classifier import ReportClassifier
+from services.match_jobs import enqueue
 from utils.config import UPLOAD_DIR, ensure_runtime_directories
 from utils.images import save_upload_image
 
@@ -27,6 +28,10 @@ class ContactBody(BaseModel):
     contact_email: str | None = None
     contact_phone: str | None = None
     prefer_anonymous: bool = False
+
+
+class StatusBody(BaseModel):
+    status: str
 
 
 def _parse_bool(value: str | bool) -> bool:
@@ -179,6 +184,7 @@ async def create_report(
         holding_note=(holding_note or "").strip() or None,
     )
     repository.add_report(report)
+    enqueue(report.id)
     return {
         "report": report_public(report, include_contact=True),
         "classification": classification_public(classification),
@@ -232,3 +238,24 @@ def update_contact(
     report.prefer_anonymous = body.prefer_anonymous
     repository.add_report(report)
     return {"report": report_public(report, include_contact=True)}
+
+
+@router.patch("/{report_id}/status")
+def update_status(
+    report_id: str,
+    body: StatusBody,
+    user: User = Depends(get_current_user),
+    repository: SQLiteRepository = Depends(get_repository),
+) -> dict:
+    report = repository.get_report(report_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not the report owner")
+    wanted = body.status.strip().lower()
+    if wanted != ReportStatus.CLOSED.value:
+        raise HTTPException(status_code=400, detail="status must be closed")
+    repository.update_report_status(report_id, ReportStatus.CLOSED)
+    closed = repository.get_report(report_id)
+    assert closed is not None
+    return {"report": report_public(closed, include_contact=True)}

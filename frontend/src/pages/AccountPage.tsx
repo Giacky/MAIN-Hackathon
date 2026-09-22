@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError, apiFetch } from '../api/client'
-import type { DemoAccount, Report } from '../api/types'
+import type { DemoAccount, HealthResponse, Report } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { safeNext } from '../auth/RedirectToLogin'
 import { ItemCard } from '../components/ItemCard'
@@ -32,6 +32,7 @@ export function AccountPage() {
   const [reportsError, setReportsError] = useState<string | null>(null)
   const [resetMsg, setResetMsg] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
+  const [demoResetAllowed, setDemoResetAllowed] = useState(false)
 
   // Demo personas for one-tap login. A 404 (endpoint not shipped yet) renders nothing.
   useEffect(() => {
@@ -74,6 +75,22 @@ export function AccountPage() {
       cancelled = true
     }
   }, [user])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const health = await apiFetch<HealthResponse>('/api/health')
+        if (cancelled) return
+        setDemoResetAllowed(Boolean(health.demo_reset_allowed))
+      } catch {
+        if (!cancelled) setDemoResetAllowed(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function afterLogin() {
     if (next) navigate(next, { replace: true })
@@ -268,7 +285,7 @@ export function AccountPage() {
         <Link to="/matches" className="glass rounded-full px-4 py-2 text-sm font-medium text-ink">
           Matches
         </Link>
-        {!confirmReset ? (
+        {demoResetAllowed && !confirmReset ? (
           <Button
             variant="ghost"
             className="px-3 py-2 text-sm"
@@ -283,7 +300,7 @@ export function AccountPage() {
         ) : null}
       </div>
 
-      {confirmReset ? (
+      {demoResetAllowed && confirmReset ? (
         <Card className="animate-in border-accent/30">
           <p className="text-sm text-ink">Reload the demo data?</p>
           <p className="mt-1 text-xs text-muted">

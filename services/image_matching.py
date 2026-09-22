@@ -15,6 +15,7 @@ from services.ml_runtime import (
     feature_device,
     feature_matcher_stack,
     rembg_session,
+    sift_matcher_stack,
     use_mock_ml,
 )
 
@@ -23,9 +24,11 @@ logger = logging.getLogger(__name__)
 _SHORTLIST_SIZE = 5
 _DINO_WEIGHT = 0.35
 _GLUE_WEIGHT = 0.65
-_MIN_INLIERS = 8
+_MIN_INLIERS = 4
 _INLIER_NORM = 40.0
 _CROP_PAD = 0.08
+_ROTATION_ANGLES = (0, 90, 180, 270)
+_ROTATION_EARLY_STOP = 20
 
 VISION_UNAVAILABLE_ERROR = (
     "Photo matching unavailable (the DINOv2 / LightGlue models could not score these "
@@ -48,6 +51,64 @@ class ImageCompareResult:
 
 def _clamp01(value: float) -> float:
     return float(max(0.0, min(1.0, value)))
+
+
+def blend_photo_score(dino_cos: float, glue_score: float) -> float:
+    """Combine DINOv2 cosine with LightGlue geometry.
+
+    Keep the 0.35/0.65 blend only when LightGlue found a geometric model.
+    On a miss (glue_score == 0), return the clamped DINO cosine so a geometry
+    miss does not zero 65% of the photo score.
+    """
+    dino = _clamp01(float(dino_cos))
+    glue = _clamp01(float(glue_score))
+    if glue <= 0.0:
+        return dino
+    return _clamp01(_DINO_WEIGHT * dino + _GLUE_WEIGHT * glue)
+
+
+def count_geometric_inliers(pts0: Any, pts1: Any) -> int:
+    """Homography RANSAC first (~3px), then fundamental matrix if inliers are low."""
+    import cv2
+    import numpy as np
+
+    src = np.asarray(pts0, dtype=np.float32).reshape(-1, 2)
+    dst = np.asarray(pts1, dtype=np.float32).reshape(-1, 2)
+    total = int(src.shape[0])
+    if total < 4:
+        return 0
+
+    homography_inliers = _ransac_inlier_count(
+        cv2.findHomography(src, dst, method=cv2.RANSAC, ransacReprojThreshold=3.0)
+    )
+    if homography_inliers >= _MIN_INLIERS:
+        return homography_inliers
+
+    fundamental_inliers = 0
+    if total >= 8:
+        fundamental_inliers = _ransac_inlier_count(
+            cv2.findFundamentalMat(
+                src,
+                dst,
+                method=cv2.FM_RANSAC,
+                ransacReprojThreshold=3.0,
+                confidence=0.99,
+            )
+        )
+        if fundamental_inliers >= _MIN_INLIERS:
+            return fundamental_inliers
+    return max(homography_inliers, fundamental_inliers)
+
+
+def _ransac_inlier_count(cv_result: Any) -> int:
+    if cv_result is None:
+        return 0
+    if not isinstance(cv_result, (tuple, list)) or len(cv_result) < 2:
+        return 0
+    mask = cv_result[1]
+    if mask is None:
+        return 0
+    return int(mask.ravel().sum())
 
 
 class ImageMatcher:
@@ -152,7 +213,7 @@ class ImageMatcher:
                 glue_score, inliers, inlier_ratio = self._lightglue_score(
                     left_path, right_path
                 )
-                score = _DINO_WEIGHT * _clamp01(dino_cos) + _GLUE_WEIGHT * glue_score
+                score = blend_photo_score(dino_cos, glue_score)
             except Exception:
                 logger.exception(
                     "LightGlue failed for shortlisted pair %s; keeping DINOv2 term",
@@ -243,75 +304,155 @@ class ImageMatcher:
     def _lightglue_score(
         self, left_path: str, right_path: str
     ) -> tuple[float, int, float]:
-        import cv2
-        import numpy as np
-        import torch
-        from torchvision.transforms.functional import to_tensor
-
         _features_name, extractor, matcher = feature_matcher_stack()
         del _features_name
-        device = torch.device(feature_device())
 
         left_img = self._foreground_crop(left_path)
         right_img = self._foreground_crop(right_path)
-        left_t = to_tensor(left_img).unsqueeze(0).to(device)
-        right_t = to_tensor(right_img).unsqueeze(0).to(device)
-
-        def _to_lg_dict(feature_batch, image_tensor: torch.Tensor) -> dict:
-            """Adapt ALIKED/DISK list outputs into LightGlue's nested dict input."""
-            feat = feature_batch[0] if isinstance(feature_batch, (list, tuple)) else feature_batch
-            if isinstance(feat, dict):
-                keypoints = feat["keypoints"]
-                descriptors = feat["descriptors"]
-            else:
-                keypoints = feat.keypoints
-                descriptors = feat.descriptors
-            if keypoints.ndim == 2:
-                keypoints = keypoints.unsqueeze(0)
-            if descriptors.ndim == 2:
-                descriptors = descriptors.unsqueeze(0)
-            _, _, height, width = image_tensor.shape
-            return {
-                "keypoints": keypoints,
-                "descriptors": descriptors,
-                "image_size": torch.tensor(
-                    [[width, height]], device=image_tensor.device, dtype=torch.float32
-                ),
-            }
-
-        with torch.inference_mode():
-            left_raw = extractor(left_t)
-            right_raw = extractor(right_t)
-            left_dict = _to_lg_dict(left_raw, left_t)
-            right_dict = _to_lg_dict(right_raw, right_t)
-            matches = matcher({"image0": left_dict, "image1": right_dict})
-
-        kpts0 = left_dict["keypoints"][0].detach().cpu().numpy()
-        kpts1 = right_dict["keypoints"][0].detach().cpu().numpy()
-        matches0 = matches["matches0"]
-        if isinstance(matches0, (list, tuple)):
-            matches0 = matches0[0]
-        matches0 = matches0.detach().cpu().numpy().reshape(-1)
-        valid = matches0 >= 0
-        pts0 = kpts0[valid]
-        pts1 = kpts1[matches0[valid].astype(int)]
-
-        pts0 = np.asarray(pts0, dtype=np.float32).reshape(-1, 2)
-        pts1 = np.asarray(pts1, dtype=np.float32).reshape(-1, 2)
-        total_matches = int(pts0.shape[0])
-        if total_matches < _MIN_INLIERS:
-            return 0.0, total_matches, 0.0
-
-        matrix, mask = cv2.findFundamentalMat(
-            pts0, pts1, method=cv2.FM_RANSAC, ransacReprojThreshold=3.0, confidence=0.99
+        glue_score, inliers, inlier_ratio = self._match_with_rotations(
+            extractor, matcher, left_img, right_img
         )
-        del matrix
-        if mask is None:
-            inliers = 0
-        else:
-            inliers = int(mask.ravel().sum())
-        inlier_ratio = float(inliers / total_matches) if total_matches else 0.0
-        if inliers < _MIN_INLIERS:
-            return 0.0, inliers, inlier_ratio
-        glue_score = _clamp01(inliers / _INLIER_NORM) * inlier_ratio
-        return float(glue_score), inliers, inlier_ratio
+        if glue_score > 0.0:
+            return glue_score, inliers, inlier_ratio
+
+        try:
+            sift_stack = sift_matcher_stack()
+        except Exception:
+            logger.exception("SIFT+LightGlue stack lookup failed")
+            sift_stack = None
+        if sift_stack is None:
+            return glue_score, inliers, inlier_ratio
+
+        _sift_name, sift_extractor, sift_matcher = sift_stack
+        del _sift_name
+        try:
+            sift_glue, sift_inliers, sift_ratio = self._match_once(
+                sift_extractor, sift_matcher, left_img, right_img
+            )
+        except Exception:
+            logger.exception("SIFT+LightGlue fallback failed; keeping ALIKED inliers")
+            return glue_score, inliers, inlier_ratio
+
+        if sift_glue > 0.0 or sift_inliers > inliers:
+            return sift_glue, sift_inliers, sift_ratio
+        return glue_score, inliers, inlier_ratio
+
+    def _match_with_rotations(
+        self, extractor: object, matcher: object, left_img: Any, right_img: Any
+    ) -> tuple[float, int, float]:
+        import torch
+        from torchvision.transforms.functional import to_tensor
+
+        device = torch.device(feature_device())
+        left_t = to_tensor(left_img).unsqueeze(0).to(device)
+        with torch.inference_mode():
+            left_dict = _features_to_lightglue(extractor(left_t), left_t)
+
+        best: tuple[float, int, float] = (0.0, 0, 0.0)
+        for angle in _ROTATION_ANGLES:
+            if angle == 0:
+                rotated = right_img
+            else:
+                rotated = right_img.rotate(angle, expand=True)
+            glue_score, inliers, inlier_ratio = self._match_right(
+                extractor, matcher, left_dict, rotated
+            )
+            if inliers > best[1] or (inliers == best[1] and glue_score > best[0]):
+                best = (glue_score, inliers, inlier_ratio)
+            if angle == 0 and inliers >= _ROTATION_EARLY_STOP:
+                break
+        return best
+
+    def _match_once(
+        self, extractor: object, matcher: object, left_img: Any, right_img: Any
+    ) -> tuple[float, int, float]:
+        import torch
+        from torchvision.transforms.functional import to_tensor
+
+        device = torch.device(feature_device())
+        left_t = to_tensor(left_img).unsqueeze(0).to(device)
+        with torch.inference_mode():
+            left_dict = _features_to_lightglue(extractor(left_t), left_t)
+        return self._match_right(extractor, matcher, left_dict, right_img)
+
+    def _match_right(
+        self,
+        extractor: object,
+        matcher: object,
+        left_dict: dict,
+        right_img: Any,
+    ) -> tuple[float, int, float]:
+        import torch
+        from torchvision.transforms.functional import to_tensor
+
+        device = torch.device(feature_device())
+        right_t = to_tensor(right_img).unsqueeze(0).to(device)
+        with torch.inference_mode():
+            right_dict = _features_to_lightglue(extractor(right_t), right_t)
+            matches = matcher({"image0": left_dict, "image1": right_dict})
+        return _score_lightglue_matches(left_dict, right_dict, matches)
+
+
+def _features_to_lightglue(feature_batch: Any, image_tensor: Any) -> dict:
+    """Adapt ALIKED/DISK/SIFT outputs into LightGlue's nested dict input."""
+    import torch
+
+    feat = feature_batch[0] if isinstance(feature_batch, (list, tuple)) else feature_batch
+    extra: dict[str, Any] = {}
+    if isinstance(feat, dict):
+        keypoints = feat["keypoints"]
+        descriptors = feat["descriptors"]
+        for key in ("scales", "oris"):
+            if key in feat:
+                extra[key] = feat[key]
+    else:
+        keypoints = feat.keypoints
+        descriptors = feat.descriptors
+        for key in ("scales", "oris"):
+            if hasattr(feat, key):
+                extra[key] = getattr(feat, key)
+    if keypoints.ndim == 2:
+        keypoints = keypoints.unsqueeze(0)
+    if descriptors.ndim == 2:
+        descriptors = descriptors.unsqueeze(0)
+    for key, value in list(extra.items()):
+        if hasattr(value, "ndim") and value.ndim == 1:
+            extra[key] = value.unsqueeze(0)
+    _, _, height, width = image_tensor.shape
+    return {
+        "keypoints": keypoints,
+        "descriptors": descriptors,
+        "image_size": torch.tensor(
+            [[width, height]], device=image_tensor.device, dtype=torch.float32
+        ),
+        **extra,
+    }
+
+
+def _score_lightglue_matches(
+    left_dict: dict, right_dict: dict, matches: Any
+) -> tuple[float, int, float]:
+    import numpy as np
+
+    kpts0 = left_dict["keypoints"][0].detach().cpu().numpy()
+    kpts1 = right_dict["keypoints"][0].detach().cpu().numpy()
+    if kpts0.size == 0 or kpts1.size == 0:
+        return 0.0, 0, 0.0
+
+    matches0 = matches["matches0"]
+    if isinstance(matches0, (list, tuple)):
+        matches0 = matches0[0]
+    matches0 = matches0.detach().cpu().numpy().reshape(-1)
+    valid = matches0 >= 0
+    pts0 = np.asarray(kpts0[valid], dtype=np.float32).reshape(-1, 2)
+    pts1 = np.asarray(kpts1[matches0[valid].astype(int)], dtype=np.float32).reshape(-1, 2)
+    total_matches = int(pts0.shape[0])
+    if total_matches == 0:
+        return 0.0, 0, 0.0
+
+    inliers = count_geometric_inliers(pts0, pts1)
+    inlier_ratio = float(inliers / total_matches) if total_matches else 0.0
+    if inliers < _MIN_INLIERS:
+        return 0.0, inliers, inlier_ratio
+    glue_score = _clamp01(inliers / _INLIER_NORM) * inlier_ratio
+    return float(glue_score), inliers, inlier_ratio

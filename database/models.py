@@ -12,6 +12,7 @@ from models.schemas import (
     MatchResult,
     Meetup,
     MeetupStatus,
+    Notification,
     Report,
     ReportStatus,
     ReportType,
@@ -107,6 +108,7 @@ def row_to_report(row: sqlite3.Row) -> Report:
 
 
 def row_to_match(row: sqlite3.Row) -> MatchResult:
+    shortlisted = _row_value(row, "visual_shortlisted")
     return MatchResult(
         lost_report_id=row["lost_report_id"],
         found_report_id=row["found_report_id"],
@@ -116,6 +118,14 @@ def row_to_match(row: sqlite3.Row) -> MatchResult:
         geo_score=row["geo_score"],
         time_score=row["time_score"],
         distance_meters=row["distance_meters"],
+        category_score=_row_value(row, "category_score"),
+        image_error=_row_value(row, "image_error"),
+        visual_shortlisted=(
+            None if shortlisted is None else bool(shortlisted)
+        ),
+        visual_dino_score=_row_value(row, "visual_dino_score"),
+        visual_inliers=_row_value(row, "visual_inliers"),
+        visual_inlier_ratio=_row_value(row, "visual_inlier_ratio"),
     )
 
 
@@ -170,4 +180,17 @@ def row_to_user(row: sqlite3.Row) -> User:
         display_name=row["display_name"],
         password_hash=row["password_hash"],
         created_at=_parse_datetime(row["created_at"]) or utc_now(),
+    )
+
+
+def row_to_notification(row: sqlite3.Row) -> Notification:
+    return Notification(
+        id=row["id"],
+        user_id=row["user_id"],
+        kind=row["kind"],
+        lost_report_id=row["lost_report_id"],
+        found_report_id=row["found_report_id"],
+        overall_score=row["overall_score"],
+        created_at=_parse_datetime(row["created_at"]) or utc_now(),
+        read_at=_parse_datetime(_row_value(row, "read_at")),
     )

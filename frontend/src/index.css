@@ -267,6 +267,19 @@
   animation: toast-in 200ms ease-out;
 }
 
+@keyframes match-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+.match-indeterminate-bar {
+  animation: match-indeterminate 1.2s ease-in-out infinite;
+}
+
 /* Hide scrollbars on horizontal chip rows without disabling scroll. */
 .no-scrollbar {
   scrollbar-width: none;

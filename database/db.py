@@ -72,7 +72,26 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 geo_score REAL NOT NULL,
                 time_score REAL NOT NULL,
                 distance_meters REAL,
+                category_score REAL,
+                image_error TEXT,
+                visual_shortlisted INTEGER,
+                visual_dino_score REAL,
+                visual_inliers INTEGER,
+                visual_inlier_ratio REAL,
+                dismissed INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (lost_report_id, found_report_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS notifications (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                lost_report_id TEXT NOT NULL,
+                found_report_id TEXT NOT NULL,
+                overall_score REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                read_at TEXT,
+                UNIQUE (user_id, lost_report_id, found_report_id)
             );
 
             CREATE TABLE IF NOT EXISTS chat_messages (
@@ -115,4 +134,23 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 "user_id": "TEXT",
                 "holding_note": "TEXT",
             },
+        )
+        _ensure_columns(
+            database,
+            "matches",
+            {
+                "category_score": "REAL",
+                "image_error": "TEXT",
+                "visual_shortlisted": "INTEGER",
+                "visual_dino_score": "REAL",
+                "visual_inliers": "INTEGER",
+                "visual_inlier_ratio": "REAL",
+                "dismissed": "INTEGER NOT NULL DEFAULT 0",
+            },
+        )
+        database.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_user_pair
+            ON notifications (user_id, lost_report_id, found_report_id)
+            """
         )

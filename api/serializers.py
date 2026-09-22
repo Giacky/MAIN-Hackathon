@@ -10,6 +10,7 @@ from models.schemas import (
     MatchResult,
     Meetup,
     ChatMessage,
+    Notification,
     Report,
     ReportStatus,
     User,
@@ -173,4 +174,16 @@ def message_public(message: ChatMessage, viewer_role: str) -> dict[str, Any]:
         "display_name": display_name_for_sender(message.sender, viewer_role),
         "message": message.message,
         "timestamp": _dt(message.timestamp),
+    }
+
+
+def notification_public(notification: Notification) -> dict[str, Any]:
+    return {
+        "id": notification.id,
+        "kind": notification.kind,
+        "lost_report_id": notification.lost_report_id,
+        "found_report_id": notification.found_report_id,
+        "overall_score": notification.overall_score,
+        "created_at": _dt(notification.created_at),
+        "read_at": _dt(notification.read_at),
     }

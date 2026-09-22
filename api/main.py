@@ -10,8 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.deps import get_repository
-from api.routers import auth, coordination, demo, health, matches, reports
+from api.routers import auth, coordination, demo, health, matches, notifications, reports
 from services.demo_seed import ensure_demo_data
+from services.match_jobs import enqueue_missing_pairs
 from utils.config import ensure_runtime_directories
 
 DEFAULT_SESSION_SECRET = "lost-found-demo-session-secret"
@@ -20,7 +21,10 @@ DEFAULT_SESSION_SECRET = "lost-found-demo-session-secret"
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     ensure_runtime_directories()
-    ensure_demo_data(get_repository(), prune_extras=False)
+    repository = get_repository()
+    ensure_demo_data(repository, prune_extras=False)
+    # Rank seeded / missing pairs in the background (inline under mock ML).
+    enqueue_missing_pairs(repository)
     yield
 
 
@@ -47,6 +51,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(reports.router)
     app.include_router(matches.router)
+    app.include_router(notifications.router)
     app.include_router(coordination.router)
     app.include_router(demo.router)
     return app

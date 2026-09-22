@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import type { CoordinationThread } from '../api/types'
-import { firstLine } from '../lib/time'
+import { firstLine } from '../time'
 import { Badge, type BadgeTone } from './ui/Badge'
 import { Card } from './ui/Card'
 

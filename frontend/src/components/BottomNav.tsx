@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useAlerts } from '../auth/AlertsContext'
 
 const items = [
   { to: '/', label: 'Home', icon: HomeIcon, end: true },
@@ -84,6 +85,8 @@ function MapIcon({ filled }: { filled: boolean }) {
 
 /** Floating glass capsule with four tabs; the active tab is a primary-light pill. */
 export function BottomNav() {
+  const { unreadCount } = useAlerts()
+
   return (
     <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div className="glass-strong pointer-events-auto flex w-full max-w-md items-stretch gap-1 rounded-full p-1.5">
@@ -101,7 +104,17 @@ export function BottomNav() {
           >
             {({ isActive }) => (
               <>
-                <item.icon filled={isActive} />
+                <span className="relative inline-flex">
+                  <item.icon filled={isActive} />
+                  {item.to === '/matches' && unreadCount > 0 ? (
+                    <span
+                      className="absolute -right-2.5 -top-1 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] font-bold leading-4 text-white shadow-[0_2px_8px_rgba(242,140,104,.45)]"
+                      aria-label={`${unreadCount} unread ${unreadCount === 1 ? 'alert' : 'alerts'}`}
+                    >
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  ) : null}
+                </span>
                 <span>{item.label}</span>
               </>
             )}

@@ -1,5 +1,5 @@
 import L from 'leaflet'
-import { Fragment, useEffect, useMemo } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import {
   Circle,
   MapContainer,
@@ -11,7 +11,7 @@ import {
 } from 'react-leaflet'
 import { Link } from 'react-router-dom'
 import type { LocationPin, Report, ReportType } from '../api/types'
-import { firstLine, timeAgo } from '../lib/time'
+import { firstLine, timeAgo } from '../time'
 import { Badge } from './ui/Badge'
 
 const MAAS_CENTER: [number, number] = [50.8514, 5.69]
@@ -22,9 +22,9 @@ export const PIN_COLORS: Record<ReportType, string> = {
   found: '#176B68',
 }
 
-const TILE_URL = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
 
 interface PinIconOptions {
   kind: ReportType
@@ -76,15 +76,32 @@ function circleOptions(kind: ReportType): L.PathOptions {
   return { color, fillColor: color, weight: 1.5, fillOpacity: 0.1 }
 }
 
-function FitBounds({ points }: { points: [number, number][] }) {
+/** Circle plus a zoom-in, mounted only for the pin the viewer just tapped. */
+function RadiusReveal({
+  lat,
+  lng,
+  radius,
+  kind,
+}: {
+  lat: number
+  lng: number
+  radius: number
+  kind: ReportType
+}) {
   const map = useMap()
   useEffect(() => {
-    if (points.length >= 2) {
-      map.fitBounds(L.latLngBounds(points), { padding: [32, 32] })
-    } else if (points.length === 1) {
-      map.setView(points[0], 14)
-    }
-  }, [map, points])
+    const bounds = L.latLng(lat, lng).toBounds(Math.max(radius, 40) * 2.2)
+    map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16, animate: true })
+  }, [map, lat, lng, radius])
+  return <Circle center={[lat, lng]} radius={radius} pathOptions={circleOptions(kind)} />
+}
+
+/** View mode always starts on Maastricht; far pins stay on the map for panning. */
+function MaastrichtHome() {
+  const map = useMap()
+  useEffect(() => {
+    map.setView(MAAS_CENTER, 13)
+  }, [map])
   return null
 }
 
@@ -133,25 +150,13 @@ interface ViewProps {
 type LocationMapProps = EditorProps | ViewProps
 
 export function LocationMap(props: LocationMapProps) {
+  const [openPin, setOpenPin] = useState<string | null>(null)
   const center = useMemo((): [number, number] => {
     if (props.mode === 'edit' && props.pins.length > 0) {
       const last = props.pins[props.pins.length - 1]
       return [last.latitude, last.longitude]
     }
-    if (props.mode === 'view') {
-      const withCoords = props.reports.filter((r) => r.latitude != null && r.longitude != null)
-      if (withCoords.length === 1) {
-        return [withCoords[0].latitude!, withCoords[0].longitude!]
-      }
-    }
     return MAAS_CENTER
-  }, [props])
-
-  const viewPoints = useMemo((): [number, number][] => {
-    if (props.mode !== 'view') return []
-    return props.reports
-      .filter((r) => r.latitude != null && r.longitude != null)
-      .map((r) => [r.latitude!, r.longitude!] as [number, number])
   }, [props])
 
   const zoom = props.mode === 'edit' ? (props.pins.length ? 14 : 13) : 13
@@ -186,7 +191,7 @@ export function LocationMap(props: LocationMapProps) {
             </>
           ) : (
             <>
-              <FitBounds points={viewPoints} />
+              <MaastrichtHome />
               {props.reports.map((report) => {
                 if (report.latitude == null || report.longitude == null) return null
                 const kind: ReportType = report.report_type === 'lost' ? 'lost' : 'found'
@@ -200,20 +205,39 @@ export function LocationMap(props: LocationMapProps) {
                           radius_meters: report.radius_meters ?? 200,
                         },
                       ]
-                return locs.map((loc, i) => (
-                  <Fragment key={`${report.id}-${i}`}>
-                    <Marker position={[loc.latitude, loc.longitude]} icon={pinIcon({ kind })}>
-                      <Popup closeButton={false} minWidth={200} maxWidth={240}>
-                        <ReportPopup report={report} mine={props.mineIds?.has(report.id) ?? false} />
-                      </Popup>
-                    </Marker>
-                    <Circle
-                      center={[loc.latitude, loc.longitude]}
-                      radius={loc.radius_meters}
-                      pathOptions={circleOptions(kind)}
-                    />
-                  </Fragment>
-                ))
+                return locs.map((loc, i) => {
+                  const pinKey = `${report.id}-${i}`
+                  const open = openPin === pinKey
+                  return (
+                    <Fragment key={pinKey}>
+                      <Marker
+                        position={[loc.latitude, loc.longitude]}
+                        icon={pinIcon({ kind, active: open })}
+                        zIndexOffset={open ? 1000 : 0}
+                        eventHandlers={{
+                          click: () => setOpenPin(pinKey),
+                          popupclose: () => setOpenPin((current) => (current === pinKey ? null : current)),
+                        }}
+                      >
+                        <Popup closeButton={false} minWidth={200} maxWidth={240}>
+                          <ReportPopup
+                            report={report}
+                            mine={props.mineIds?.has(report.id) ?? false}
+                            radiusMeters={loc.radius_meters}
+                          />
+                        </Popup>
+                      </Marker>
+                      {open ? (
+                        <RadiusReveal
+                          lat={loc.latitude}
+                          lng={loc.longitude}
+                          radius={loc.radius_meters}
+                          kind={kind}
+                        />
+                      ) : null}
+                    </Fragment>
+                  )
+                })
               })}
             </>
           )}
@@ -285,7 +309,15 @@ export function LocationMap(props: LocationMapProps) {
   )
 }
 
-function ReportPopup({ report, mine }: { report: Report; mine: boolean }) {
+function ReportPopup({
+  report,
+  mine,
+  radiusMeters,
+}: {
+  report: Report
+  mine: boolean
+  radiusMeters: number
+}) {
   const photo = report.image_urls?.[0]
   const when = timeAgo(report.event_time ?? report.created_at)
   return (
@@ -299,6 +331,7 @@ function ReportPopup({ report, mine }: { report: Report; mine: boolean }) {
           {when ? <span className="text-[11px] text-muted">{when}</span> : null}
         </div>
         <p className="line-clamp-2 text-[13px] leading-snug text-ink">{firstLine(report.description, 90)}</p>
+        <p className="mt-0.5 text-[11px] text-muted">Within {Math.round(radiusMeters)} m</p>
         {mine ? (
           <Link
             to={`/matches?report=${report.id}`}

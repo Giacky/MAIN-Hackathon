@@ -10,6 +10,7 @@ from database.models import (
     row_to_chat_message,
     row_to_match,
     row_to_meetup,
+    row_to_notification,
     row_to_report,
     row_to_user,
     user_to_row,
@@ -20,11 +21,21 @@ from models.schemas import (
     MatchResult,
     Meetup,
     MeetupStatus,
+    Notification,
     Report,
     ReportStatus,
     User,
+    utc_now,
 )
 from utils.config import DATABASE_PATH
+
+_INACTIVE_STATUSES = {ReportStatus.RECOVERED.value, ReportStatus.CLOSED.value}
+
+
+def _status_value(status: ReportStatus | str) -> str:
+    if isinstance(status, ReportStatus):
+        return status.value
+    return str(status)
 
 
 class ReportRepository(Protocol):
@@ -85,12 +96,7 @@ class SQLiteRepository:
         return [
             report
             for report in self.list_reports()
-            if (
-                report.status.value
-                if isinstance(report.status, ReportStatus)
-                else str(report.status)
-            )
-            != ReportStatus.RECOVERED.value
+            if _status_value(report.status) not in _INACTIVE_STATUSES
         ]
 
     def list_reports_for_user(self, user_id: str) -> list[Report]:
@@ -124,18 +130,40 @@ class SQLiteRepository:
                 )
 
     def mark_recovered(self, report_id: str) -> bool:
+        return self.update_report_status(report_id, ReportStatus.RECOVERED)
+
+    def update_report_status(self, report_id: str, status: ReportStatus) -> bool:
         with connection(self.database_path) as database:
             cursor = database.execute(
                 "UPDATE reports SET status = ? WHERE id = ?",
-                (ReportStatus.RECOVERED.value, report_id),
+                (status.value, report_id),
             )
         return cursor.rowcount > 0
 
     def save_match(self, match: MatchResult) -> MatchResult:
+        shortlisted = match.visual_shortlisted
         with connection(self.database_path) as database:
             database.execute(
                 """
-                INSERT OR REPLACE INTO matches VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO matches (
+                    lost_report_id, found_report_id, overall_score, text_score,
+                    image_score, geo_score, time_score, distance_meters,
+                    category_score, image_error, visual_shortlisted,
+                    visual_dino_score, visual_inliers, visual_inlier_ratio
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(lost_report_id, found_report_id) DO UPDATE SET
+                    overall_score = excluded.overall_score,
+                    text_score = excluded.text_score,
+                    image_score = excluded.image_score,
+                    geo_score = excluded.geo_score,
+                    time_score = excluded.time_score,
+                    distance_meters = excluded.distance_meters,
+                    category_score = excluded.category_score,
+                    image_error = excluded.image_error,
+                    visual_shortlisted = excluded.visual_shortlisted,
+                    visual_dino_score = excluded.visual_dino_score,
+                    visual_inliers = excluded.visual_inliers,
+                    visual_inlier_ratio = excluded.visual_inlier_ratio
                 """,
                 (
                     match.lost_report_id,
@@ -146,6 +174,12 @@ class SQLiteRepository:
                     match.geo_score,
                     match.time_score,
                     match.distance_meters,
+                    match.category_score,
+                    match.image_error,
+                    None if shortlisted is None else int(bool(shortlisted)),
+                    match.visual_dino_score,
+                    match.visual_inliers,
+                    match.visual_inlier_ratio,
                 ),
             )
         return match
@@ -159,6 +193,125 @@ class SQLiteRepository:
                 """
             ).fetchall()
         return [row_to_match(row) for row in rows]
+
+    def list_matches_for_report(self, report_id: str) -> list[MatchResult]:
+        with connection(self.database_path) as database:
+            rows = database.execute(
+                """
+                SELECT * FROM matches
+                WHERE (lost_report_id = ? OR found_report_id = ?)
+                  AND COALESCE(dismissed, 0) = 0
+                ORDER BY overall_score DESC
+                """,
+                (report_id, report_id),
+            ).fetchall()
+        return [row_to_match(row) for row in rows]
+
+    def dismiss_match(self, lost_report_id: str, found_report_id: str) -> bool:
+        with connection(self.database_path) as database:
+            cursor = database.execute(
+                """
+                UPDATE matches
+                SET dismissed = 1
+                WHERE lost_report_id = ? AND found_report_id = ?
+                """,
+                (lost_report_id, found_report_id),
+            )
+        return cursor.rowcount > 0
+
+    def create_match_notification(
+        self,
+        *,
+        user_id: str,
+        lost_report_id: str,
+        found_report_id: str,
+        overall_score: float,
+    ) -> None:
+        notification = Notification(
+            user_id=user_id,
+            kind="match",
+            lost_report_id=lost_report_id,
+            found_report_id=found_report_id,
+            overall_score=overall_score,
+        )
+        with connection(self.database_path) as database:
+            database.execute(
+                """
+                INSERT OR IGNORE INTO notifications (
+                    id, user_id, kind, lost_report_id, found_report_id,
+                    overall_score, created_at, read_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    notification.id,
+                    notification.user_id,
+                    notification.kind,
+                    notification.lost_report_id,
+                    notification.found_report_id,
+                    notification.overall_score,
+                    notification.created_at.isoformat(),
+                    None,
+                ),
+            )
+
+    def list_notifications(self, user_id: str) -> list[Notification]:
+        with connection(self.database_path) as database:
+            rows = database.execute(
+                """
+                SELECT * FROM notifications
+                WHERE user_id = ?
+                ORDER BY CASE WHEN read_at IS NULL THEN 0 ELSE 1 END,
+                         created_at DESC
+                """,
+                (user_id,),
+            ).fetchall()
+        return [row_to_notification(row) for row in rows]
+
+    def count_unread_notifications(self, user_id: str) -> int:
+        with connection(self.database_path) as database:
+            row = database.execute(
+                """
+                SELECT COUNT(*) AS n FROM notifications
+                WHERE user_id = ? AND read_at IS NULL
+                """,
+                (user_id,),
+            ).fetchone()
+        return int(row["n"] if row is not None else 0)
+
+    def mark_notification_read(
+        self, notification_id: str, user_id: str
+    ) -> Notification | None:
+        now = utc_now().isoformat()
+        with connection(self.database_path) as database:
+            database.execute(
+                """
+                UPDATE notifications
+                SET read_at = ?
+                WHERE id = ? AND user_id = ? AND read_at IS NULL
+                """,
+                (now, notification_id, user_id),
+            )
+            row = database.execute(
+                """
+                SELECT * FROM notifications
+                WHERE id = ? AND user_id = ?
+                """,
+                (notification_id, user_id),
+            ).fetchone()
+        return row_to_notification(row) if row else None
+
+    def mark_all_notifications_read(self, user_id: str) -> int:
+        now = utc_now().isoformat()
+        with connection(self.database_path) as database:
+            cursor = database.execute(
+                """
+                UPDATE notifications
+                SET read_at = ?
+                WHERE user_id = ? AND read_at IS NULL
+                """,
+                (now, user_id),
+            )
+        return cursor.rowcount
 
     def add_chat_message(self, message: ChatMessage) -> ChatMessage:
         with connection(self.database_path) as database:

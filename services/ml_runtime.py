@@ -73,7 +73,7 @@ def _kornia_feature_stack() -> tuple[str, object, object] | None:
             return None
 
     try:
-        extractor = ALIKED(max_num_keypoints=512)
+        extractor = ALIKED(max_num_keypoints=1024)
         matcher = LightGlue(features="aliked")
         extractor = extractor.to(device).eval()
         matcher = matcher.to(device).eval()
@@ -116,6 +116,98 @@ def _kornia_feature_stack() -> tuple[str, object, object] | None:
         return ("disk", _DiskAdapter(extractor), matcher)
     except Exception:
         logger.exception("DISK feature stack also failed to load")
+        return None
+
+
+class _OpenCvSiftExtractor:
+    """OpenCV SIFT in LightGlue dict form (keypoints, descriptors, scales, oris)."""
+
+    def __init__(self, max_num_keypoints: int = 1024) -> None:
+        import cv2
+
+        self._max_num_keypoints = max_num_keypoints
+        self._sift = cv2.SIFT_create(
+            contrastThreshold=0.0066667,
+            nfeatures=max_num_keypoints,
+            edgeThreshold=10,
+            nOctaveLayers=4,
+        )
+
+    def __call__(self, images: object) -> dict:
+        import cv2
+        import numpy as np
+        import torch
+
+        tensor = images if isinstance(images, torch.Tensor) else torch.as_tensor(images)
+        if tensor.ndim == 3:
+            tensor = tensor.unsqueeze(0)
+        frame = tensor[0].detach().cpu()
+        if frame.shape[0] == 3:
+            rgb = (
+                frame.permute(1, 2, 0).numpy().clip(0.0, 1.0) * 255.0
+            ).astype(np.uint8)
+            gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+        else:
+            gray = (frame[0].numpy().clip(0.0, 1.0) * 255.0).astype(np.uint8)
+
+        detections, descriptors = self._sift.detectAndCompute(gray, None)
+        if descriptors is None or not detections:
+            empty = torch.zeros(1, 0, 2, dtype=torch.float32)
+            return {
+                "keypoints": empty,
+                "descriptors": torch.zeros(1, 0, 128, dtype=torch.float32),
+                "scales": torch.zeros(1, 0, dtype=torch.float32),
+                "oris": torch.zeros(1, 0, dtype=torch.float32),
+            }
+
+        points = np.array([kp.pt for kp in detections], dtype=np.float32)
+        scores = np.array([kp.response for kp in detections], dtype=np.float32)
+        scales = np.array([kp.size for kp in detections], dtype=np.float32)
+        angles = np.deg2rad(np.array([kp.angle for kp in detections], dtype=np.float32))
+        if len(points) > self._max_num_keypoints:
+            keep = np.argpartition(-scores, self._max_num_keypoints)[: self._max_num_keypoints]
+            points, scores, scales, angles = (
+                points[keep],
+                scores[keep],
+                scales[keep],
+                angles[keep],
+            )
+            descriptors = descriptors[keep]
+
+        desc = torch.from_numpy(np.asarray(descriptors, dtype=np.float32))
+        desc = torch.nn.functional.normalize(desc, p=1, dim=-1, eps=1e-6)
+        desc = desc.clamp_min(1e-6).sqrt()
+        desc = torch.nn.functional.normalize(desc, p=2, dim=-1, eps=1e-6)
+        return {
+            "keypoints": torch.from_numpy(points).unsqueeze(0),
+            "descriptors": desc.unsqueeze(0),
+            "scales": torch.from_numpy(scales).unsqueeze(0),
+            "oris": torch.from_numpy(angles).unsqueeze(0),
+        }
+
+
+@lru_cache(maxsize=1)
+def _sift_feature_stack() -> tuple[str, object, object] | None:
+    """SIFT extractor + LightGlue(features='sift'). None if load fails."""
+    device = feature_device()
+    try:
+        from kornia.feature import LightGlue
+    except ImportError:
+        try:
+            from lightglue import LightGlue  # type: ignore[no-redef]
+        except ImportError:
+            logger.info("SIFT+LightGlue unavailable (LightGlue is not importable)")
+            return None
+
+    try:
+        matcher = LightGlue(features="sift")
+        matcher = matcher.to(device).eval()
+        extractor = _OpenCvSiftExtractor(max_num_keypoints=1024)
+        return ("sift", extractor, matcher)
+    except Exception:
+        logger.exception(
+            "SIFT+LightGlue failed to load; ALIKED misses will use DINOv2 cosine"
+        )
         return None
 
 
@@ -189,6 +281,11 @@ def feature_matcher_stack() -> tuple[str, object, object]:
     return stack
 
 
+def sift_matcher_stack() -> tuple[str, object, object] | None:
+    """Optional SIFT+LightGlue fallback. None when weights or OpenCV SIFT cannot load."""
+    return _sift_feature_stack()
+
+
 def warmup_text_models() -> None:
     """Load weights once on the Mac so the first phone request is not a cold start."""
     if use_mock_ml():
@@ -208,7 +305,7 @@ def warmup_text_models() -> None:
 
 
 def warmup_vision_models() -> None:
-    """Load DINOv2, rembg, and ALIKED/LightGlue."""
+    """Load DINOv2, rembg, ALIKED/LightGlue, and SIFT+LightGlue if available."""
     if use_mock_ml():
         return
     dino_processor()
@@ -218,3 +315,7 @@ def warmup_vision_models() -> None:
     except Exception:
         logger.exception("rembg failed during vision warmup; full-frame crops will be used")
     feature_matcher_stack()
+    if _sift_feature_stack() is None:
+        logger.info(
+            "SIFT+LightGlue not loaded; ALIKED misses will use DINOv2 cosine"
+        )

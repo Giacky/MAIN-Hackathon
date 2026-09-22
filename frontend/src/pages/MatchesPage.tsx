@@ -1,24 +1,37 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { dismissMatch } from '../api/alerts'
 import { ApiError, apiFetch } from '../api/client'
 import { fetchThreads, threadKey } from '../api/coordination'
-import type { MatchItem, Report } from '../api/types'
+import type { MatchItem, MatchesResponse, Report } from '../api/types'
+import { useAlerts } from '../auth/AlertsContext'
 import { useAuth } from '../auth/AuthContext'
 import { RedirectToLogin } from '../auth/RedirectToLogin'
 import { MatchCard } from '../components/MatchCard'
 import { Toast } from '../components/Toast'
 import { Badge } from '../components/ui/Badge'
 
+const POLL_MS = 2000
+
 function unwrapReports(data: { reports?: Report[] } | Report[]): Report[] {
   return Array.isArray(data) ? data : (data.reports ?? [])
 }
 
-function unwrapMatches(data: { matches?: MatchItem[] } | MatchItem[]): MatchItem[] {
-  return Array.isArray(data) ? data : (data.matches ?? [])
+function positiveMatches(items: MatchItem[]): MatchItem[] {
+  return items.filter((m) => (m.overall_score ?? 0) > 0)
+}
+
+function emptyNearbyLabel(report: Report): string {
+  const category = report.category?.trim()
+  if (category && !/mock|unclassified/i.test(category)) {
+    return `No ${category.toLowerCase()} reports nearby`
+  }
+  return 'No reports nearby'
 }
 
 export function MatchesPage() {
   const { user, loading } = useAuth()
+  const { markReadForReport, notifications } = useAlerts()
   const [params, setParams] = useSearchParams()
   const location = useLocation()
   const navigate = useNavigate()
@@ -67,6 +80,11 @@ export function MatchesPage() {
     }
   }, [user])
 
+  useEffect(() => {
+    if (!selectedId || !user) return
+    void markReadForReport(selectedId).catch(() => undefined)
+  }, [selectedId, user, markReadForReport, notifications])
+
   const tabReports = useMemo(() => {
     if (!mine) return []
     return mine.filter((r) => r.report_type === tab && r.status === 'open')
@@ -85,28 +103,42 @@ export function MatchesPage() {
   useEffect(() => {
     if (!selectedId || !user) {
       setMatches(null)
+      setRanking(false)
       return
     }
     let cancelled = false
-    setRanking(true)
+    let timer: ReturnType<typeof setTimeout> | undefined
+
     setRankError(null)
     setMatches(null)
-    ;(async () => {
+    setRanking(true)
+
+    async function load() {
       try {
-        const data = await apiFetch<{ matches?: MatchItem[] } | MatchItem[]>(
-          `/api/matches?report_id=${encodeURIComponent(selectedId)}`,
+        const data = await apiFetch<MatchesResponse>(
+          `/api/matches?report_id=${encodeURIComponent(selectedId!)}`,
         )
         if (cancelled) return
-        setMatches(unwrapMatches(data).filter((m) => (m.overall_score ?? 0) > 0))
+        // Keep prior cards while computing; replace with latest rows from the server.
+        setMatches(positiveMatches(data.matches ?? []))
+        setRankError(null)
+        if (data.status === 'computing') {
+          setRanking(true)
+          timer = setTimeout(load, POLL_MS)
+        } else {
+          setRanking(false)
+        }
       } catch (err) {
         if (cancelled) return
         setRankError(err instanceof ApiError ? err.message : 'Ranking failed')
-      } finally {
-        if (!cancelled) setRanking(false)
+        setRanking(false)
       }
-    })()
+    }
+
+    void load()
     return () => {
       cancelled = true
+      if (timer !== undefined) clearTimeout(timer)
     }
   }, [selectedId, user])
 
@@ -202,21 +234,26 @@ export function MatchesPage() {
       {selected ? (
         <section className="space-y-3">
           {ranking ? (
-            <div className="space-y-4" aria-busy>
-              {[0, 1].map((i) => (
-                <div key={i} className="glass h-72 animate-pulse" />
-              ))}
+            <div
+              className="h-1 overflow-hidden rounded-full bg-primary-light"
+              role="progressbar"
+              aria-label="Ranking matches"
+            >
+              <div className="match-indeterminate-bar h-full w-1/3 rounded-full bg-primary" />
             </div>
-          ) : rankError ? (
+          ) : null}
+          {rankError ? (
             <p className="text-sm text-accent">{rankError}</p>
-          ) : matches == null ? null : matches.length === 0 ? (
+          ) : matches == null ? null : matches.length === 0 && !ranking ? (
             <div className="glass px-4 py-6 text-center">
-              <p className="text-sm text-ink">No positive matches yet.</p>
+              <p className="text-sm text-ink">
+                {emptyNearbyLabel(selected)}
+              </p>
               <p className="mt-1 text-xs text-muted">
                 Try another report or add a clearer photo. New reports are matched as they come in.
               </p>
             </div>
-          ) : (
+          ) : matches.length > 0 ? (
             <div className="space-y-4">
               {matches.map((m) => (
                 <MatchCard
@@ -224,10 +261,18 @@ export function MatchesPage() {
                   match={m}
                   anchorType={selected.report_type}
                   hasThread={threadKeys.has(threadKey(m.lost.id, m.found.id))}
+                  onDismiss={async () => {
+                    await dismissMatch(m.lost.id, m.found.id)
+                    setMatches((prev) =>
+                      prev
+                        ? prev.filter((x) => !(x.lost.id === m.lost.id && x.found.id === m.found.id))
+                        : prev,
+                    )
+                  }}
                 />
               ))}
             </div>
-          )}
+          ) : null}
         </section>
       ) : null}
 

@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { AlertsProvider } from './auth/AlertsContext'
 import { AuthProvider } from './auth/AuthContext'
 import { BottomNav } from './components/BottomNav'
 import { TopBar } from './components/TopBar'
@@ -34,7 +35,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <Shell />
+        <AlertsProvider>
+          <Shell />
+        </AlertsProvider>
       </AuthProvider>
     </BrowserRouter>
   )

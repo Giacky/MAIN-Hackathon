@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from typing import Literal
 
@@ -44,6 +45,7 @@ def snapshot() -> dict:
         # "mock" or "dino_lightglue"; see services.ml_runtime.image_backend().
         "image_backend": image_backend(),
         "models": models,
+        "demo_reset_allowed": os.getenv("LOST_FOUND_ALLOW_DEMO_RESET", "").strip() == "1",
     }
 
 

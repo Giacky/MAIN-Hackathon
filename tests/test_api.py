@@ -24,12 +24,14 @@ from services.demo_seed import (
     AVATAR_PALETTE,
     DEMO_ACCOUNTS,
     DEMO_FOUND_EARBUDS_ID,
+    DEMO_FOUND_HOTEL_ID,
     DEMO_FOUND_LIBRARY_ID,
     DEMO_LOST_EARBUDS_ID,
     DEMO_LOST_ID,
     DEMO_PASSWORD,
     ensure_demo_data,
 )
+from services.match_jobs import enqueue
 from utils.config import UPLOAD_DIR
 
 
@@ -45,8 +47,10 @@ class ApiTests(unittest.TestCase):
         set_repository_override(self.repository)
         self.addCleanup(lambda: set_repository_override(None))
         self.app = create_app()
+        # Enter the client context so lifespan seeds + enqueues missing pairs.
         self.client = TestClient(self.app)
-        self.addCleanup(self.client.close)
+        self.client.__enter__()
+        self.addCleanup(self.client.__exit__, None, None, None)
 
     def _login(self, email: str, password: str = DEMO_PASSWORD) -> dict:
         response = self.client.post(
@@ -133,6 +137,7 @@ class ApiTests(unittest.TestCase):
         locations = json.dumps(
             [{"latitude": 50.85, "longitude": 5.69, "radius_meters": 200}]
         )
+        started = datetime.now(timezone.utc)
         response = self.client.post(
             "/api/reports",
             data={
@@ -144,7 +149,13 @@ class ApiTests(unittest.TestCase):
             },
             files={"images": ("phone.jpg", buffer, "image/jpeg")},
         )
+        elapsed = (datetime.now(timezone.utc) - started).total_seconds()
         self.assertEqual(response.status_code, 200, response.text)
+        self.assertLess(
+            elapsed,
+            2.0,
+            f"create_report took {elapsed:.2f}s under mock ML (should stay fast)",
+        )
         payload = response.json()
         report = payload["report"]
         self.assertIn("classification", payload)
@@ -171,6 +182,42 @@ class ApiTests(unittest.TestCase):
             self.assertNotIn("contact_email", report)
             self.assertNotIn("contact_phone", report)
 
+    def test_seeded_matches_are_ready_and_ordered(self) -> None:
+        self._login("alex@demo.local")
+        response = self.client.get(f"/api/matches?report_id={DEMO_LOST_ID}")
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["status"], "ready")
+        self.assertEqual(payload["anchor"]["id"], DEMO_LOST_ID)
+        matches = payload["matches"]
+        self.assertTrue(matches)
+        found_ids = [match["found"]["id"] for match in matches]
+        self.assertIn(DEMO_FOUND_LIBRARY_ID, found_ids)
+        self.assertIn(DEMO_FOUND_HOTEL_ID, found_ids)
+        self.assertLess(
+            found_ids.index(DEMO_FOUND_LIBRARY_ID),
+            found_ids.index(DEMO_FOUND_HOTEL_ID),
+            "Sam's library wallet should rank above Mia's brown card holder",
+        )
+
+    def test_second_matches_get_does_not_rank(self) -> None:
+        self._login("alex@demo.local")
+        first = self.client.get(f"/api/matches?report_id={DEMO_LOST_ID}")
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(first.json()["status"], "ready")
+
+        from unittest.mock import patch
+
+        with patch(
+            "services.matching_engine.MatchingEngine.rank_matches",
+            side_effect=AssertionError("rank_matches must not run on GET"),
+        ) as rank:
+            second = self.client.get(f"/api/matches?report_id={DEMO_LOST_ID}")
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json()["status"], "ready")
+        self.assertEqual(second.json()["matches"], first.json()["matches"])
+        rank.assert_not_called()
+
     def test_rank_returns_component_scores_and_gate_reason(self) -> None:
         self._login("alex@demo.local")
         # Add a phone found report owned by someone else for category gate.
@@ -186,9 +233,12 @@ class ApiTests(unittest.TestCase):
                 contact_email=other.email,
             )
         )
+        enqueue("found-phone-gate")
         response = self.client.get(f"/api/matches?report_id={DEMO_LOST_ID}")
         self.assertEqual(response.status_code, 200, response.text)
-        matches = response.json()["matches"]
+        body = response.json()
+        self.assertEqual(body["status"], "ready")
+        matches = body["matches"]
         self.assertTrue(matches)
         top = matches[0]
         for key in (
@@ -355,12 +405,187 @@ class ApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    def test_close_report_drops_from_open_and_ranking(self) -> None:
+        self._login("sam@demo.local")
+        forbidden = self.client.patch(
+            f"/api/reports/{DEMO_LOST_ID}/status",
+            json={"status": "closed"},
+        )
+        self.assertEqual(forbidden.status_code, 403)
+
+        self.client.post("/api/auth/logout")
+        self._login("alex@demo.local")
+        closed = self.client.patch(
+            f"/api/reports/{DEMO_LOST_ID}/status",
+            json={"status": "closed"},
+        )
+        self.assertEqual(closed.status_code, 200, closed.text)
+        self.assertEqual(closed.json()["report"]["status"], "closed")
+        stored = self.repository.get_report(DEMO_LOST_ID)
+        assert stored is not None
+        self.assertEqual(stored.status.value, "closed")
+
+        invalid = self.client.patch(
+            f"/api/reports/{DEMO_LOST_EARBUDS_ID}/status",
+            json={"status": "open"},
+        )
+        self.assertEqual(invalid.status_code, 400)
+
+        open_ids = {
+            report["id"]
+            for report in self.client.get("/api/reports?scope=open").json()["reports"]
+        }
+        self.assertNotIn(DEMO_LOST_ID, open_ids)
+
+        self.client.post("/api/auth/logout")
+        self._login("sam@demo.local")
+        sam_matches = self.client.get(
+            f"/api/matches?report_id={DEMO_FOUND_LIBRARY_ID}"
+        )
+        self.assertEqual(sam_matches.status_code, 200, sam_matches.text)
+        lost_ids = [match["lost"]["id"] for match in sam_matches.json()["matches"]]
+        self.assertNotIn(DEMO_LOST_ID, lost_ids)
+
+        other = self.repository.get_user_by_email("mia@demo.local")
+        assert other is not None
+        new_found_id = "found-after-close"
+        self.repository.add_report(
+            Report(
+                id=new_found_id,
+                report_type=ReportType.FOUND,
+                description="Black leather wallet at the desk.",
+                category="wallet",
+                user_id=other.id,
+                contact_email=other.email,
+            )
+        )
+        enqueue(new_found_id)
+        pairs = {
+            (match.lost_report_id, match.found_report_id)
+            for match in self.repository.list_matches()
+        }
+        self.assertNotIn((DEMO_LOST_ID, new_found_id), pairs)
+
+    def test_dismiss_match_omits_pair_and_survives_rerank(self) -> None:
+        self._login("alex@demo.local")
+        before = self.client.get(f"/api/matches?report_id={DEMO_LOST_ID}")
+        self.assertEqual(before.status_code, 200, before.text)
+        self.assertIn(
+            DEMO_FOUND_LIBRARY_ID,
+            [match["found"]["id"] for match in before.json()["matches"]],
+        )
+
+        self.client.post("/api/auth/logout")
+        self._login("sam@demo.local")
+        dismissed = self.client.patch(
+            "/api/matches/dismiss",
+            json={
+                "lost_report_id": DEMO_LOST_ID,
+                "found_report_id": DEMO_FOUND_LIBRARY_ID,
+            },
+        )
+        self.assertEqual(dismissed.status_code, 200, dismissed.text)
+        self.assertTrue(dismissed.json()["dismissed"])
+
+        self.client.post("/api/auth/logout")
+        self._login("alex@demo.local")
+        after = self.client.get(f"/api/matches?report_id={DEMO_LOST_ID}")
+        self.assertEqual(after.status_code, 200, after.text)
+        self.assertNotIn(
+            DEMO_FOUND_LIBRARY_ID,
+            [match["found"]["id"] for match in after.json()["matches"]],
+        )
+
+        enqueue(DEMO_LOST_ID)
+        reranked = self.client.get(f"/api/matches?report_id={DEMO_LOST_ID}")
+        self.assertEqual(reranked.status_code, 200, reranked.text)
+        self.assertNotIn(
+            DEMO_FOUND_LIBRARY_ID,
+            [match["found"]["id"] for match in reranked.json()["matches"]],
+        )
+
+    def test_match_notification_for_counterpart_then_mark_read(self) -> None:
+        self.assertEqual(self.client.get("/api/notifications").status_code, 401)
+
+        register = self.client.post(
+            "/api/auth/register",
+            json={
+                "display_name": "Luuk",
+                "email": "luuk-notify@example.com",
+                "password": "pass",
+            },
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        locations = json.dumps(
+            [{"latitude": 50.8514, "longitude": 5.6900, "radius_meters": 200}]
+        )
+        created = self.client.post(
+            "/api/reports",
+            data={
+                "report_type": "found",
+                "description": "Black leather wallet found at the cafe.",
+                "event_time": datetime.now(timezone.utc).isoformat(),
+                "prefer_anonymous": "false",
+                "locations": locations,
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        found_id = created.json()["report"]["id"]
+
+        filer = self.client.get("/api/notifications")
+        self.assertEqual(filer.status_code, 200, filer.text)
+        self.assertFalse(
+            any(
+                item["found_report_id"] == found_id
+                for item in filer.json()["notifications"]
+            )
+        )
+
+        self.client.post("/api/auth/logout")
+        self._login("alex@demo.local")
+        payload = self.client.get("/api/notifications")
+        self.assertEqual(payload.status_code, 200, payload.text)
+        body = payload.json()
+        self.assertIn("unread_count", body)
+        note = next(
+            (
+                item
+                for item in body["notifications"]
+                if item["found_report_id"] == found_id
+                and item["lost_report_id"] == DEMO_LOST_ID
+            ),
+            None,
+        )
+        self.assertIsNotNone(note)
+        self.assertEqual(note["kind"], "match")
+        self.assertIsNone(note["read_at"])
+        self.assertGreater(note["overall_score"], 0)
+        self.assertGreaterEqual(body["unread_count"], 1)
+        self.assertIsNone(body["notifications"][0]["read_at"])
+
+        marked = self.client.post(f"/api/notifications/{note['id']}/read")
+        self.assertEqual(marked.status_code, 200, marked.text)
+        self.assertIsNotNone(marked.json()["notification"]["read_at"])
+        after = self.client.get("/api/notifications").json()
+        updated = next(
+            item for item in after["notifications"] if item["id"] == note["id"]
+        )
+        self.assertIsNotNone(updated["read_at"])
+        self.assertEqual(after["unread_count"], body["unread_count"] - 1)
+
+        cleared = self.client.post("/api/notifications/read-all")
+        self.assertEqual(cleared.status_code, 200, cleared.text)
+        cleared_body = cleared.json()
+        self.assertEqual(cleared_body["unread_count"], 0)
+        self.assertTrue(all(item["read_at"] for item in cleared_body["notifications"]))
+
     def test_health_reports_mock_backend(self) -> None:
         response = self.client.get("/api/health")
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload["mock_ml"])
         self.assertEqual(payload["image_backend"], "mock")
+        self.assertFalse(payload["demo_reset_allowed"])
         warmup = self.client.post("/api/health/warmup")
         self.assertEqual(warmup.status_code, 200)
         self.assertEqual(warmup.json()["state"], "mock")

@@ -110,6 +110,31 @@ class RealModelMatchingTests(unittest.TestCase):
         self.assertGreater(airpods_matches[airpods_found.id].overall_score, 0.7)
         self.assertEqual(airpods_matches[wallet_found.id].overall_score, 0.0)
 
+    def test_rotated_crop_of_same_photo_still_scores(self) -> None:
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from PIL import Image
+
+        from services.image_matching import ImageMatcher
+
+        src = Path("samples/images/lost_black_wallet.png")
+        if not src.is_file():
+            self.skipTest("sample wallet photo missing")
+        matcher = ImageMatcher()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = root / "orig.png"
+            rotated = root / "rot90.png"
+            with Image.open(src) as image:
+                rgb = image.convert("RGB")
+                rgb.save(original)
+                rgb.rotate(90, expand=True).save(rotated)
+            result = matcher.compare([str(original)], [str(rotated)])
+        self.assertIsNotNone(result.score)
+        self.assertGreater(result.score, 0.0)
+        self.assertTrue(result.shortlisted)
+
 
 if __name__ == "__main__":
     unittest.main()

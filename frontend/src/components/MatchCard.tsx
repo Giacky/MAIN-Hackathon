@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { MatchItem } from '../api/types'
 import { Badge } from './ui/Badge'
@@ -27,34 +28,46 @@ function Meter({ label, value }: { label: string; value: number | null | undefin
   )
 }
 
+function categoryLooksReal(category?: string | null): boolean {
+  return Boolean(category && !/mock|unclassified/i.test(category))
+}
+
+/** Matches services.image_matching._MIN_INLIERS. */
+const INLIER_FLOOR = 4
+
+/** One-line photo/category verdict; overall score stays secondary. */
+function matchVerdict(match: MatchItem): string | null {
+  const visual = match.visual
+  if (visual?.shortlisted) {
+    if (visual.inliers != null && visual.inliers >= INLIER_FLOOR) {
+      return 'Photos look like the same object'
+    }
+    return 'Looks similar, but the photos do not line up'
+  }
+  const categoryHit =
+    (match.category_score ?? 0) >= 0.5 ||
+    (categoryLooksReal(match.lost.category) && match.lost.category === match.found.category)
+  if (categoryHit) return 'Same kind of item, nearby'
+  return null
+}
+
 interface MatchCardProps {
   match: MatchItem
   anchorType: 'lost' | 'found'
   /** True when a pickup thread (notes or meetup) already exists for this pair. */
   hasThread?: boolean
+  onDismiss?: () => Promise<void> | void
 }
 
-export function MatchCard({ match, anchorType, hasThread = false }: MatchCardProps) {
+export function MatchCard({ match, anchorType, hasThread = false, onDismiss }: MatchCardProps) {
   const other = anchorType === 'lost' ? match.found : match.lost
   const photo = other.image_urls?.[0]
   const overall = pct(match.overall_score)
-  const visual = match.visual
+  const verdict = matchVerdict(match)
+  const [busy, setBusy] = useState(false)
+  const [dismissError, setDismissError] = useState<string | null>(null)
 
-  let visualLine: string | null = null
-  if (visual?.shortlisted) {
-    if (visual.inliers != null) {
-      visualLine = `${visual.inliers} aligned points`
-    } else if (visual.dino_score != null) {
-      visualLine = `Visual similarity ${pct(visual.dino_score)}%`
-    } else {
-      visualLine = 'In visual shortlist'
-    }
-  } else if (visual != null) {
-    visualLine = 'Not in the visual shortlist'
-  }
-
-  const category =
-    other.category && !/mock|unclassified/i.test(other.category) ? other.category : null
+  const category = categoryLooksReal(other.category) ? other.category : null
   const heading = category
     ? category.charAt(0).toUpperCase() + category.slice(1)
     : other.report_type === 'found'
@@ -67,6 +80,18 @@ export function MatchCard({ match, anchorType, hasThread = false }: MatchCardPro
         : `${Math.round(match.distance_meters)} m apart`
       : null
 
+  async function handleDismiss() {
+    if (!onDismiss || busy) return
+    setBusy(true)
+    setDismissError(null)
+    try {
+      await onDismiss()
+    } catch (err) {
+      setDismissError(err instanceof Error ? err.message : 'Could not dismiss')
+      setBusy(false)
+    }
+  }
+
   return (
     <Card padded={false} className="overflow-hidden animate-in">
       <div className="relative aspect-[4/3] bg-primary-light/50">
@@ -77,12 +102,6 @@ export function MatchCard({ match, anchorType, hasThread = false }: MatchCardPro
         )}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-ink/25 to-transparent" />
         <Badge
-          tone={match.overall_score < 0.25 ? 'muted' : 'accent'}
-          className="absolute right-3 top-3 px-3 py-1 text-sm shadow-[0_4px_14px_rgba(242,140,104,.35)]"
-        >
-          {overall}% match
-        </Badge>
-        <Badge
           tone={other.report_type === 'lost' ? 'lost' : 'found'}
           className="absolute left-3 top-3 bg-card/80"
         >
@@ -92,10 +111,18 @@ export function MatchCard({ match, anchorType, hasThread = false }: MatchCardPro
 
       <div className="space-y-3 p-4">
         <div>
-          <div className="flex items-baseline justify-between gap-2">
+          {verdict ? (
+            <h3 className="font-display text-lg leading-snug text-ink">{verdict}</h3>
+          ) : (
             <h3 className="font-display text-lg leading-snug text-ink">{heading}</h3>
-            {distance ? <span className="text-xs text-muted">{distance}</span> : null}
-          </div>
+          )}
+          <p className="mt-0.5 text-xs text-muted">
+            Combined ranking {overall}%
+            {distance ? ` · ${distance}` : ''}
+          </p>
+          {verdict ? (
+            <p className="mt-2 text-sm font-medium text-ink">{heading}</p>
+          ) : null}
           <p className="mt-1 line-clamp-2 text-sm text-ink">{other.description}</p>
           {other.holding_note ? (
             <p className="mt-1 text-xs text-muted">Where it is now: {other.holding_note}</p>
@@ -109,23 +136,10 @@ export function MatchCard({ match, anchorType, hasThread = false }: MatchCardPro
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
           <Meter label="Text" value={match.text_score} />
-          <Meter label="Photos" value={match.image_score} />
           <Meter label="Category" value={match.category_score} />
           <Meter label="Location" value={match.geo_score} />
           <Meter label="Time" value={match.time_score} />
         </div>
-
-        {visualLine ? (
-          <p className="text-xs text-muted">
-            {visualLine}
-            {visual?.shortlisted && visual.inlier_ratio != null
-              ? ` · ratio ${Math.round(visual.inlier_ratio * 100)}%`
-              : null}
-            {visual?.shortlisted && visual.dino_score != null && visual.inliers != null
-              ? ` · DINO ${pct(visual.dino_score)}%`
-              : null}
-          </p>
-        ) : null}
 
         {match.image_error ? (
           <p className="text-xs text-muted">Photo model note: {match.image_error}</p>
@@ -133,12 +147,30 @@ export function MatchCard({ match, anchorType, hasThread = false }: MatchCardPro
 
         {match.gate_reason ? <p className="text-xs text-muted">Gate: {match.gate_reason}</p> : null}
 
-        <Link
-          to={`/pickup/${match.lost.id}/${match.found.id}`}
-          className={[buttonBase, hasThread ? buttonVariants.primary : buttonVariants.accent, 'mt-1 w-full'].join(' ')}
-        >
-          {hasThread ? 'Continue pickup' : 'Arrange pickup'}
-        </Link>
+        {dismissError ? <p className="text-xs text-accent">{dismissError}</p> : null}
+
+        <div className="mt-1 flex items-stretch gap-2">
+          <Link
+            to={`/pickup/${match.lost.id}/${match.found.id}`}
+            className={[
+              buttonBase,
+              hasThread ? buttonVariants.primary : buttonVariants.accent,
+              'min-w-0 flex-1',
+            ].join(' ')}
+          >
+            {hasThread ? 'Continue pickup' : 'Arrange pickup'}
+          </Link>
+          {onDismiss ? (
+            <button
+              type="button"
+              onClick={() => void handleDismiss()}
+              disabled={busy}
+              className={[buttonBase, buttonVariants.ghost, 'shrink-0 px-3.5'].join(' ')}
+            >
+              {busy ? '…' : 'Not this'}
+            </button>
+          ) : null}
+        </div>
       </div>
     </Card>
   )

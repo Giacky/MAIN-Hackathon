@@ -1,5 +1,5 @@
 export type ReportType = 'lost' | 'found'
-export type ReportStatus = 'open' | 'recovered' | string
+export type ReportStatus = 'open' | 'recovered' | 'closed' | string
 export type ModelState = 'idle' | 'warming' | 'ready' | 'mock' | 'failed'
 
 export interface User {
@@ -74,6 +74,13 @@ export interface MatchItem {
   found: Report
 }
 
+/** Response from GET /api/matches?report_id= */
+export interface MatchesResponse {
+  status: 'ready' | 'computing'
+  anchor?: Report
+  matches: MatchItem[]
+}
+
 export interface HealthModels {
   classifier: ModelState
   text: ModelState
@@ -88,6 +95,32 @@ export interface HealthResponse {
   device?: string
   image_backend?: string
   models: HealthModels
+  demo_reset_allowed?: boolean
+}
+
+/** One in-app match alert from GET /api/notifications. */
+export interface MatchNotification {
+  id: string
+  kind: string
+  lost_report_id: string
+  found_report_id: string
+  overall_score: number
+  created_at: string
+  read_at?: string | null
+  /** Viewer's own report this alert is about, when the API sends it. */
+  report_id?: string | null
+  lost?: Report | null
+  found?: Report | null
+}
+
+export interface NotificationsResponse {
+  notifications: MatchNotification[]
+  unread_count: number
+}
+
+export interface NotificationReadResponse {
+  notification: MatchNotification
+  unread_count: number
 }
 
 export interface Preset {
