@@ -4,7 +4,7 @@ import { AlertsProvider } from './auth/AlertsContext'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import { RedirectToLogin } from './auth/RedirectToLogin'
 import { BottomNav } from './components/BottomNav'
-import { TopBar } from './components/TopBar'
+import { TitleOverrideProvider, TopBar } from './components/TopBar'
 import { AccountPage } from './pages/AccountPage'
 import { HomePage } from './pages/HomePage'
 import { LoginPage } from './pages/LoginPage'
@@ -54,28 +54,30 @@ function Shell() {
   }
 
   return (
-    <div className="mx-auto min-h-dvh w-full max-w-md px-4 pb-28">
-      <TopBar />
-      <main className="pt-4">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/account" element={<AccountPage />} />
-          <Route path="/report" element={<ReportPage />} />
-          <Route path="/reports/:id/edit" element={<ReportPage />} />
-          <Route path="/reports/:id" element={<ReportDetailPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/matches" element={<MatchesRedirect />} />
-          <Route path="/map" element={<MapPage />} />
-          <Route path="/around" element={<Navigate to="/map" replace />} />
-          <Route path="/pickup" element={<PickupLandingPage />} />
-          <Route path="/pickup/:lostId/:foundId" element={<PickupPage />} />
-          <Route path="/login" element={<Navigate to="/" replace />} />
-          <Route path="/register" element={<Navigate to="/" replace />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </main>
-      <BottomNav />
-    </div>
+    <TitleOverrideProvider>
+      <div className="mx-auto min-h-dvh w-full max-w-md px-4 pb-28">
+        <TopBar />
+        <main className="pt-4">
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/account" element={<AccountPage />} />
+            <Route path="/report" element={<ReportPage />} />
+            <Route path="/reports/:id/edit" element={<ReportPage />} />
+            <Route path="/reports/:id" element={<ReportDetailPage />} />
+            <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/matches" element={<MatchesRedirect />} />
+            <Route path="/map" element={<MapPage />} />
+            <Route path="/around" element={<Navigate to="/map" replace />} />
+            <Route path="/pickup" element={<PickupLandingPage />} />
+            <Route path="/pickup/:lostId/:foundId" element={<PickupPage />} />
+            <Route path="/login" element={<Navigate to="/" replace />} />
+            <Route path="/register" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </main>
+        <BottomNav />
+      </div>
+    </TitleOverrideProvider>
   )
 }
 

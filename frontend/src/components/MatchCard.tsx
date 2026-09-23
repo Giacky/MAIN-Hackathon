@@ -24,7 +24,7 @@ function matchVerdict(match: MatchItem): string | null {
     if (visual.inliers != null && visual.inliers >= INLIER_FLOOR) {
       return 'Photos look like the same object'
     }
-    return 'Looks similar, but the photos do not line up'
+    return 'Looks like the same item'
   }
   const categoryHit =
     (match.category_score ?? 0) >= 0.5 ||

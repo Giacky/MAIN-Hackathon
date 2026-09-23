@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ApiError, apiFetch } from '../api/client'
 import { fetchThreads } from '../api/coordination'
-import type { CoordinationThread, MatchNotification, Report } from '../api/types'
-import { useAlerts } from '../auth/AlertsContext'
+import type { CoordinationThread, MatchItem, MatchesResponse, Report } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { PickupThreadCard } from '../components/PickupThreadCard'
 import { Card } from '../components/ui/Card'
@@ -12,19 +11,6 @@ import { firstLine } from '../time'
 
 function unwrapReports(data: { reports?: Report[] } | Report[]): Report[] {
   return Array.isArray(data) ? data : (data.reports ?? [])
-}
-
-function viewerReportId(n: MatchNotification, mineIds: ReadonlySet<string>): string | null {
-  if (n.report_id && (mineIds.size === 0 || mineIds.has(n.report_id))) return n.report_id
-  if (mineIds.has(n.lost_report_id)) return n.lost_report_id
-  if (mineIds.has(n.found_report_id)) return n.found_report_id
-  return n.report_id ?? null
-}
-
-function otherSnippet(n: MatchNotification, myId: string | null): Report | null {
-  if (myId === n.lost_report_id) return n.found ?? null
-  if (myId === n.found_report_id) return n.lost ?? null
-  return n.found ?? n.lost ?? null
 }
 
 function yoursLabel(report?: Report): string | null {
@@ -39,11 +25,22 @@ function pairKey(lostId: string, foundId: string): string {
   return `${lostId}:${foundId}`
 }
 
+function otherFromMatch(match: MatchItem, mineId: string): Report {
+  return match.lost.id === mineId ? match.found : match.lost
+}
+
+interface ForYouGroup {
+  reportId: string
+  mineReport: Report
+  other: Report
+  count: number
+}
+
 export function HomePage() {
   const { user } = useAuth()
-  const { notifications } = useAlerts()
   const [mine, setMine] = useState<Report[] | null>(null)
   const [threads, setThreads] = useState<CoordinationThread[] | null>(null)
+  const [forYou, setForYou] = useState<ForYouGroup[]>([])
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -73,34 +70,57 @@ export function HomePage() {
     }
   }, [user])
 
-  const active = threads?.filter((t) => !t.recovered) ?? []
-  const mineIds = useMemo(() => new Set((mine ?? []).map((r) => r.id)), [mine])
+  const active = useMemo(() => threads?.filter((t) => !t.recovered) ?? [], [threads])
   const firstName = user?.display_name.split(' ')[0] ?? ''
   const activePairs = useMemo(
     () => new Set(active.map((t) => pairKey(t.lost.id, t.found.id))),
     [active],
   )
 
-  const possibleGroups = useMemo(() => {
-    const positive = notifications.filter((n) => (n.overall_score ?? 0) > 0)
-    const groups: { reportId: string | null; items: MatchNotification[] }[] = []
-    const index = new Map<string, number>()
-    for (const n of positive) {
-      if (activePairs.has(pairKey(n.lost_report_id, n.found_report_id))) continue
-      const myId = viewerReportId(n, mineIds)
-      const key = myId ?? `pair:${n.lost_report_id}:${n.found_report_id}`
-      const existing = index.get(key)
-      if (existing != null) {
-        groups[existing].items.push(n)
-      } else {
-        index.set(key, groups.length)
-        groups.push({ reportId: myId, items: [n] })
-      }
-    }
-    return groups
-  }, [notifications, mineIds, activePairs])
+  const openWithMatches = useMemo(
+    () => (mine ?? []).filter((r) => r.status === 'open' && (r.match_count ?? 0) > 0),
+    [mine],
+  )
 
-  const hasInbox = possibleGroups.length + active.length > 0
+  useEffect(() => {
+    if (!user || openWithMatches.length === 0) {
+      setForYou([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const groups = await Promise.all(
+          openWithMatches.map(async (report) => {
+            const data = await apiFetch<MatchesResponse>(
+              `/api/matches?report_id=${encodeURIComponent(report.id)}`,
+            )
+            const positive = (data.matches ?? []).filter((m) => (m.overall_score ?? 0) > 0)
+            const leftover = positive.filter(
+              (m) => !activePairs.has(pairKey(m.lost.id, m.found.id)),
+            )
+            if (leftover.length === 0) return null
+            const top = leftover[0]
+            return {
+              reportId: report.id,
+              mineReport: report,
+              other: otherFromMatch(top, report.id),
+              count: leftover.length,
+            } satisfies ForYouGroup
+          }),
+        )
+        if (cancelled) return
+        setForYou(groups.filter((g): g is ForYouGroup => g != null))
+      } catch {
+        if (!cancelled) setForYou([])
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user, openWithMatches, activePairs])
+
+  const hasForYou = forYou.length + active.length > 0
 
   return (
     <div className="space-y-5 animate-in">
@@ -131,22 +151,16 @@ export function HomePage() {
 
       {error ? <p className="text-sm text-accent">{error}</p> : null}
 
-      {hasInbox ? (
+      {hasForYou ? (
         <section className="space-y-3">
-          <h2 className="font-display text-lg text-ink">Inbox</h2>
+          <h2 className="font-display text-lg text-ink">For you</h2>
           <div className="space-y-2">
-            {possibleGroups.slice(0, 4).map((group) => {
-              const n = group.items[0]
-              const myId = group.reportId
-              const mineReport = myId ? mine?.find((r) => r.id === myId) : undefined
-              const other = otherSnippet(n, myId)
-              const href = myId ? `/reports/${myId}` : '/reports'
-              const photo = other?.image_urls?.[0] ?? mineReport?.image_urls?.[0]
-              const forYou = yoursLabel(mineReport)
-              const title = other?.description ?? mineReport?.description ?? 'Possible match'
-              const count = group.items.length
+            {forYou.slice(0, 4).map((group) => {
+              const photo = group.other.image_urls?.[0] ?? group.mineReport.image_urls?.[0]
+              const forLabel = yoursLabel(group.mineReport)
+              const title = group.other.description || group.mineReport.description || 'Possible match'
               return (
-                <Link key={n.id} to={href} className="block">
+                <Link key={group.reportId} to={`/reports/${group.reportId}`} className="block">
                   <Card padded={false} className="overflow-hidden hover:bg-card/70 active:scale-[0.99]">
                     <div className="flex items-center gap-3 p-3">
                       <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-primary-light/60">
@@ -159,14 +173,14 @@ export function HomePage() {
                         )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        {forYou ? (
-                          <p className="text-xs font-medium text-primary">For your {forYou}</p>
+                        {forLabel ? (
+                          <p className="text-xs font-medium text-primary">For your {forLabel}</p>
                         ) : (
                           <p className="text-xs font-medium text-primary">Possible match</p>
                         )}
                         <p className="mt-0.5 line-clamp-2 text-sm leading-snug text-ink">{title}</p>
                         <p className="mt-0.5 text-xs text-muted">
-                          {count === 1 ? 'Needs a look' : `${count} possible matches`}
+                          {group.count === 1 ? 'Needs a look' : `${group.count} possible matches`}
                         </p>
                       </div>
                       <svg

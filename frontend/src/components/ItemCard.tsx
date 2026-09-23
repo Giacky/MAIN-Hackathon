@@ -56,7 +56,7 @@ export function ItemCard({
             {when ? <span className="ml-auto text-[11px] text-muted">{when}</span> : null}
           </div>
           <p className="line-clamp-2 text-sm leading-snug text-ink">{report.description}</p>
-          {typeof report.match_count === 'number' ? (
+          {typeof report.match_count === 'number' && report.match_count > 0 ? (
             <p className="mt-0.5 text-xs text-muted">
               {report.match_count === 1 ? '1 match' : `${report.match_count} matches`}
             </p>

@@ -8,6 +8,7 @@ import { useAlerts } from '../auth/AlertsContext'
 import { useAuth } from '../auth/AuthContext'
 import { LocationMap } from '../components/LocationMap'
 import { MatchCard } from '../components/MatchCard'
+import { useTopBarTitle } from '../components/TopBar'
 import { Toast } from '../components/Toast'
 import { Badge } from '../components/ui/Badge'
 import { formatShortWhen } from '../time'
@@ -52,12 +53,18 @@ export function ReportDetailPage() {
   const [ranking, setRanking] = useState(false)
   const [threadKeys, setThreadKeys] = useState<ReadonlySet<string>>(() => new Set())
   const [pinsOpen, setPinsOpen] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
+
+  useTopBarTitle(
+    report ? (report.report_type === 'lost' ? 'Lost' : 'Found') : null,
+  )
 
   useEffect(() => {
     if (!user || !id) return
     let cancelled = false
     setReport(null)
     setLoadError(null)
+    setConfirmClose(false)
     ;(async () => {
       try {
         const data = await apiFetch<{ report: Report }>(`/api/reports/${encodeURIComponent(id)}`)
@@ -137,6 +144,7 @@ export function ReportDetailPage() {
     try {
       await closeReport(report.id)
       setReport({ ...report, status: 'closed' })
+      setConfirmClose(false)
       setLoadError(null)
     } catch (err) {
       setLoadError(err instanceof ApiError ? err.message : 'Could not close report')
@@ -150,7 +158,7 @@ export function ReportDetailPage() {
       <div className="space-y-3 animate-in">
         <p className="text-sm text-accent">{loadError}</p>
         <Link to="/reports" className="text-sm font-medium text-primary">
-          My items
+          Reports
         </Link>
       </div>
     )
@@ -182,7 +190,7 @@ export function ReportDetailPage() {
     <div className="space-y-5 animate-in">
       <header className="space-y-1">
         <Link to="/reports" className="text-sm font-medium text-primary">
-          My items
+          Reports
         </Link>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1 space-y-1">
@@ -197,18 +205,44 @@ export function ReportDetailPage() {
             {when ? <p className="text-sm text-muted">{when}</p> : null}
           </div>
           {isOpen ? (
-            <div className="flex shrink-0 items-center gap-3 pt-1">
-              <Link to={`/reports/${report.id}/edit`} className="text-sm font-semibold text-primary">
-                Edit
-              </Link>
-              <button
-                type="button"
-                disabled={closing}
-                onClick={() => void onClose()}
-                className="text-sm font-medium text-muted transition duration-150 hover:text-ink disabled:opacity-60"
-              >
-                {closing ? 'Closing…' : 'Close'}
-              </button>
+            <div className="flex shrink-0 flex-col items-end gap-1.5 pt-1">
+              {confirmClose ? (
+                <div className="flex flex-col items-end gap-1">
+                  <p className="text-xs text-muted">Close this report?</p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={closing}
+                      onClick={() => void onClose()}
+                      className="text-sm font-semibold text-accent transition duration-150 hover:brightness-95 disabled:opacity-60"
+                    >
+                      {closing ? 'Closing…' : 'Confirm'}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={closing}
+                      onClick={() => setConfirmClose(false)}
+                      className="text-sm font-medium text-muted transition duration-150 hover:text-ink disabled:opacity-60"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <Link to={`/reports/${report.id}/edit`} className="text-sm font-semibold text-primary">
+                    Edit
+                  </Link>
+                  <button
+                    type="button"
+                    disabled={closing}
+                    onClick={() => setConfirmClose(true)}
+                    className="text-sm font-medium text-muted transition duration-150 hover:text-ink disabled:opacity-60"
+                  >
+                    Close
+                  </button>
+                </div>
+              )}
             </div>
           ) : null}
         </div>
@@ -291,7 +325,7 @@ export function ReportDetailPage() {
             className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-ink"
           >
             <span>
-              Pins
+              Where
               <span className="ml-2 text-xs font-normal text-muted">
                 {pins.length === 1 ? '1 pin' : `${pins.length} pins`}
               </span>

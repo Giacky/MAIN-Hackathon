@@ -199,14 +199,11 @@ export function ReportPage() {
 
   return (
     <div className="space-y-5 animate-in">
-      <header>
-        <h1 className="font-display text-2xl text-ink">{isEdit ? 'Edit report' : 'New report'}</h1>
-        {isEdit && editId ? (
-          <Link to={`/reports/${editId}`} className="mt-2 inline-block text-sm font-medium text-primary">
-            Back
-          </Link>
-        ) : null}
-      </header>
+      {isEdit && editId ? (
+        <Link to={`/reports/${editId}`} className="inline-block text-sm font-medium text-primary">
+          Back
+        </Link>
+      ) : null}
 
       <form className="space-y-5" onSubmit={(e) => void onSubmit(e)}>
         <div className="glass flex gap-1 rounded-full p-1" role="radiogroup" aria-label="Report type">

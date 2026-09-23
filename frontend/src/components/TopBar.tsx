@@ -1,16 +1,45 @@
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 
 function titleFor(pathname: string): string {
-  if (pathname === '/') return 'Lost & Found'
+  if (pathname === '/') return 'Home'
   if (/^\/reports\/[^/]+\/edit/.test(pathname)) return 'Edit report'
   if (/^\/reports\/[^/]+/.test(pathname)) return 'Report'
-  if (pathname.startsWith('/reports')) return 'My items'
+  if (pathname.startsWith('/reports')) return 'Reports'
   if (pathname.startsWith('/report')) return 'New report'
   if (pathname.startsWith('/around') || pathname.startsWith('/map')) return 'Map'
   if (pathname.startsWith('/pickup')) return 'Pickup'
   if (pathname.startsWith('/account')) return 'Account'
   return 'Lost & Found'
+}
+
+const TitleOverrideContext = createContext<{
+  override: string | null
+  setOverride: (title: string | null) => void
+}>({ override: null, setOverride: () => {} })
+
+/** Lets a page (e.g. report detail) replace the top-bar title once data loads. */
+export function TitleOverrideProvider({ children }: { children: ReactNode }) {
+  const [override, setOverride] = useState<string | null>(null)
+  const value = useMemo(() => ({ override, setOverride }), [override])
+  return <TitleOverrideContext.Provider value={value}>{children}</TitleOverrideContext.Provider>
+}
+
+/** Sets the top-bar title while mounted; clears on unmount or when `title` is null. */
+export function useTopBarTitle(title: string | null) {
+  const { setOverride } = useContext(TitleOverrideContext)
+  useEffect(() => {
+    setOverride(title)
+    return () => setOverride(null)
+  }, [title, setOverride])
 }
 
 export function AvatarChip({
@@ -39,7 +68,8 @@ export function AvatarChip({
 export function TopBar() {
   const { user, loading } = useAuth()
   const { pathname } = useLocation()
-  const title = titleFor(pathname)
+  const { override } = useContext(TitleOverrideContext)
+  const title = override ?? titleFor(pathname)
   const onAccount = pathname.startsWith('/account')
 
   return (

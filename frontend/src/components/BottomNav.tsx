@@ -3,8 +3,9 @@ import { useAlerts } from '../auth/AlertsContext'
 
 const items = [
   { to: '/', label: 'Home', icon: HomeIcon, end: true },
-  { to: '/reports', label: 'My items', icon: ReportsIcon },
+  { to: '/reports', label: 'Reports', icon: ReportsIcon },
   { to: '/map', label: 'Map', icon: MapIcon },
+  { to: '/account', label: 'Account', icon: AccountIcon },
 ] as const
 
 function HomeIcon({ filled }: { filled: boolean }) {
@@ -58,7 +59,29 @@ function MapIcon({ filled }: { filled: boolean }) {
   )
 }
 
-/** Floating glass capsule with three tabs; the active tab is a primary-light pill. */
+function AccountIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <circle
+        cx="12"
+        cy="8"
+        r="3.25"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        fill={filled ? 'currentColor' : 'none'}
+      />
+      <path
+        d="M5.5 19.5c1.6-3 4-4.5 6.5-4.5s4.9 1.5 6.5 4.5"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </svg>
+  )
+}
+
+/** Floating glass capsule with four tabs; the active tab is a primary-light pill. */
 export function BottomNav() {
   const { unreadCount } = useAlerts()
 
