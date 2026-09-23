@@ -222,6 +222,8 @@ data/uploads/*
 *.db
 *.sqlite
 *.sqlite3
+# SQLite CLI leftover from opening an in-memory database
+:memory:.ses
 .DS_Store
 .idea/
 
