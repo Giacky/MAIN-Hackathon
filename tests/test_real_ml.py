@@ -135,6 +135,51 @@ class RealModelMatchingTests(unittest.TestCase):
         self.assertGreater(result.score, 0.0)
         self.assertTrue(result.shortlisted)
 
+    def test_airpods_dino_same_object_band_vs_wallet_negative(self) -> None:
+        from pathlib import Path
+
+        from services.image_matching import (
+            _SAME_OBJECT_DINO_MIN,
+            ImageMatcher,
+            same_object_decision,
+        )
+
+        lost_buds = Path("samples/images/lost_white_earbuds.png")
+        found_buds = Path("samples/images/found_white_earbuds.png")
+        lost_wallet = Path("samples/images/lost_black_wallet.png")
+        if not lost_buds.is_file() or not found_buds.is_file() or not lost_wallet.is_file():
+            self.skipTest("sample earbuds/wallet photos missing")
+
+        matcher = ImageMatcher()
+        airpods = matcher.compare([str(lost_buds)], [str(found_buds)])
+        negative = matcher.compare([str(lost_wallet)], [str(found_buds)])
+
+        self.assertIsNotNone(airpods.dino_score)
+        self.assertIsNotNone(negative.dino_score)
+        self.assertGreaterEqual(airpods.dino_score, _SAME_OBJECT_DINO_MIN)
+        self.assertLess(negative.dino_score, _SAME_OBJECT_DINO_MIN)
+        self.assertTrue(same_object_decision(airpods.dino_score, airpods.inliers))
+        self.assertTrue(airpods.same_object)
+        # Negative pair must sit below the DINO same-object band.
+        self.assertFalse(same_object_decision(negative.dino_score, 0))
+
+    def test_mouse_pair_text_floors_keyboard_gates(self) -> None:
+        mouse = self.engine.rank_matches(
+            _lost("black mouse"),
+            [_found("blue wireless mouse")],
+        )[0]
+        self.assertEqual(mouse.category_score, 1.0)
+        # Color conflict keeps the floor slightly below the no-conflict floor.
+        self.assertGreaterEqual(mouse.text_score, 0.60)
+        self.assertGreater(mouse.overall_score, 0.3)
+
+        keyboard = self.engine.rank_matches(
+            _lost("black mouse"),
+            [_found("black keyboard")],
+        )[0]
+        self.assertEqual(keyboard.category_score, 0.0)
+        self.assertEqual(keyboard.overall_score, 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

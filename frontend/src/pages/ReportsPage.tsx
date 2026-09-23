@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { isUnreadNotification } from '../api/alerts'
 import { ApiError, apiFetch } from '../api/client'
 import type { Report, ReportType } from '../api/types'
+import { useAlerts } from '../auth/AlertsContext'
 import { useAuth } from '../auth/AuthContext'
 import { ItemCard } from '../components/ItemCard'
 
@@ -22,9 +24,24 @@ function newestOpenType(reports: Report[]): ReportType {
 
 export function ReportsPage() {
   const { user } = useAuth()
+  const { notifications } = useAlerts()
   const [reports, setReports] = useState<Report[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<ReportType | null>(null)
+
+  const activityByReport = useMemo(() => {
+    const map = new Map<string, { hasUnread: boolean; hasMessage: boolean }>()
+    for (const n of notifications) {
+      if (!isUnreadNotification(n)) continue
+      const rid = n.report_id
+      if (!rid) continue
+      const prev = map.get(rid) ?? { hasUnread: false, hasMessage: false }
+      prev.hasUnread = true
+      if (n.kind === 'message') prev.hasMessage = true
+      map.set(rid, prev)
+    }
+    return map
+  }, [notifications])
 
   useEffect(() => {
     if (!user) return
@@ -117,9 +134,18 @@ export function ReportsPage() {
         </div>
       ) : (
         <div className="space-y-2">
-          {ordered.map((r) => (
-            <ItemCard key={r.id} report={r} href={`/reports/${r.id}`} />
-          ))}
+          {ordered.map((r) => {
+            const activity = activityByReport.get(r.id)
+            return (
+              <ItemCard
+                key={r.id}
+                report={r}
+                href={`/reports/${r.id}`}
+                hasUnreadActivity={Boolean(activity?.hasUnread)}
+                showNewMessage={Boolean(activity?.hasMessage)}
+              />
+            )
+          })}
         </div>
       )}
     </div>

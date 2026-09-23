@@ -8,35 +8,50 @@ import { Card } from './ui/Card'
 interface ItemCardProps {
   report: Report
   href?: string
+  /** When set (and no href), clicking the card body runs this instead of navigating. */
+  onSelect?: () => void
   /** Optional trailing element, e.g. a chevron or count. */
   trailing?: ReactNode
   matchesHref?: string
   onClose?: () => void
   closing?: boolean
+  /** Unread match or message alert for this report — one circle even if both. */
+  hasUnreadActivity?: boolean
+  /** When an unread alert is a message, show "New message" instead of the match count. */
+  showNewMessage?: boolean
 }
 
 export function ItemCard({
   report,
   href,
+  onSelect,
   trailing,
   matchesHref,
   onClose,
   closing = false,
+  hasUnreadActivity = false,
+  showNewMessage = false,
 }: ItemCardProps) {
   const photo = report.image_urls?.[0]
   const when = timeAgo(report.event_time ?? report.created_at)
   const hasActions = Boolean(matchesHref || onClose)
+  const matchLine =
+    typeof report.match_count === 'number' && report.match_count > 0
+      ? report.match_count === 1
+        ? '1 match'
+        : `${report.match_count} matches`
+      : null
 
   const inner = (
     <Card
       padded={false}
       className={[
         'overflow-hidden',
-        href && !hasActions ? 'hover:bg-card/70 active:scale-[0.99]' : '',
+        (href || onSelect) && !hasActions ? 'hover:bg-card/70 active:scale-[0.99]' : '',
       ].join(' ')}
     >
       <div className="flex items-center gap-3 p-3">
-        <div className="h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-primary-light/60">
+        <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl bg-primary-light/60">
           {photo ? (
             <img src={photo} alt="" className="h-full w-full object-cover" />
           ) : (
@@ -44,6 +59,12 @@ export function ItemCard({
               No photo
             </div>
           )}
+          {hasUnreadActivity ? (
+            <span
+              className="absolute right-1 top-1 h-2.5 w-2.5 rounded-full bg-accent shadow-[0_0_0_2px_rgba(255,255,255,.9)]"
+              aria-label="Unread activity"
+            />
+          ) : null}
         </div>
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-center gap-1.5">
@@ -56,10 +77,10 @@ export function ItemCard({
             {when ? <span className="ml-auto text-[11px] text-muted">{when}</span> : null}
           </div>
           <p className="line-clamp-2 text-sm leading-snug text-ink">{report.description}</p>
-          {typeof report.match_count === 'number' && report.match_count > 0 ? (
-            <p className="mt-0.5 text-xs text-muted">
-              {report.match_count === 1 ? '1 match' : `${report.match_count} matches`}
-            </p>
+          {showNewMessage ? (
+            <p className="mt-0.5 text-xs font-medium text-accent">New message</p>
+          ) : matchLine ? (
+            <p className="mt-0.5 text-xs text-muted">{matchLine}</p>
           ) : null}
         </div>
         {trailing}
@@ -94,6 +115,13 @@ export function ItemCard({
       <Link to={href} className="block">
         {inner}
       </Link>
+    )
+  }
+  if (onSelect && !hasActions) {
+    return (
+      <button type="button" className="block w-full text-left" onClick={onSelect}>
+        {inner}
+      </button>
     )
   }
   return inner

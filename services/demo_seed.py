@@ -224,8 +224,8 @@ PRESET_CATEGORIES = {
     "found_bottle_far": "bottle",
     "lost_glasses": "glasses",
     "found_glasses": "glasses",
-    "lost_earbuds": "electronics",
-    "found_earbuds": "electronics",
+    "lost_earbuds": "earbuds",
+    "found_earbuds": "earbuds",
 }
 
 

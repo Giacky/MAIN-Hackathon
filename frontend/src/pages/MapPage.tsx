@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { ApiError, apiFetch } from '../api/client'
 import { fetchThreads } from '../api/coordination'
 import type { CoordinationThread, Report, ReportType } from '../api/types'
@@ -6,7 +7,10 @@ import { useAuth } from '../auth/AuthContext'
 import { RedirectToLogin } from '../auth/RedirectToLogin'
 import { ItemCard } from '../components/ItemCard'
 import { LocationMap } from '../components/LocationMap'
+import { Badge } from '../components/ui/Badge'
+import { Button, buttonBase, buttonVariants } from '../components/ui/Button'
 import { fieldClass } from '../components/ui/Input'
+import { firstLine, timeAgo } from '../time'
 
 function unwrapReports(data: { reports?: Report[] } | Report[]): Report[] {
   return Array.isArray(data) ? data : (data.reports ?? [])
@@ -17,14 +21,39 @@ const legend: { kind: ReportType; label: string; on: string; dot: string }[] = [
   { kind: 'found', label: 'Found', on: 'bg-primary-light text-primary border-primary/20', dot: 'bg-primary' },
 ]
 
+function claimHref(report: Report): string {
+  const opposite = report.report_type === 'found' ? 'lost' : 'found'
+  const pins =
+    report.locations?.length > 0
+      ? report.locations
+      : report.latitude != null && report.longitude != null
+        ? [
+            {
+              latitude: report.latitude,
+              longitude: report.longitude,
+              radius_meters: report.radius_meters ?? 200,
+            },
+          ]
+        : []
+  const params = new URLSearchParams({ type: opposite, claim: report.id })
+  if (pins[0]) {
+    params.set('lat', String(pins[0].latitude))
+    params.set('lng', String(pins[0].longitude))
+    params.set('radius', String(pins[0].radius_meters))
+  }
+  return `/report?${params.toString()}`
+}
+
 export function MapPage() {
   const { user, loading } = useAuth()
+  const navigate = useNavigate()
   const [reports, setReports] = useState<Report[] | null>(null)
   const [mineIds, setMineIds] = useState<ReadonlySet<string>>(() => new Set())
   const [threads, setThreads] = useState<CoordinationThread[]>([])
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [visible, setVisible] = useState<Record<ReportType, boolean>>({ lost: true, found: true })
+  const [preview, setPreview] = useState<Report | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -104,8 +133,20 @@ export function MapPage() {
     setVisible((v) => ({ ...v, [kind]: !v[kind] }))
   }
 
+  function openOther(report: Report) {
+    const thread = threadByReport.get(report.id)
+    if (thread) {
+      navigate(`/pickup/${thread.lost.id}/${thread.found.id}`)
+      return
+    }
+    setPreview(report)
+  }
+
   if (loading) return <p className="text-sm text-muted">Loading…</p>
   if (!user) return <RedirectToLogin />
+
+  const claimLabel =
+    preview?.report_type === 'found' ? 'This is mine' : preview?.report_type === 'lost' ? 'I found this' : null
 
   return (
     <div className="space-y-4 animate-in">
@@ -147,7 +188,9 @@ export function MapPage() {
             >
               <span className={`h-2 w-2 rounded-full ${on ? item.dot : 'bg-muted/40'}`} aria-hidden />
               {item.label}
-              <span className="tabular-nums opacity-70">{counts[item.kind]}</span>
+              {reports != null ? (
+                <span className="tabular-nums opacity-70">{counts[item.kind]}</span>
+              ) : null}
             </button>
           )
         })}
@@ -160,7 +203,16 @@ export function MapPage() {
       ) : (
         <>
           {withCoords.length > 0 ? (
-            <LocationMap mode="view" reports={withCoords} mineIds={mineIds} className="h-[22rem]" />
+            <LocationMap
+              mode="view"
+              reports={withCoords}
+              mineIds={mineIds}
+              className="h-[22rem]"
+              onSelectReport={(report) => {
+                if (mineIds.has(report.id)) return
+                openOther(report)
+              }}
+            />
           ) : (
             <p className="text-sm text-muted">No pins for this filter.</p>
           )}
@@ -182,12 +234,15 @@ export function MapPage() {
                     key={r.id}
                     report={r}
                     href={href}
+                    onSelect={!mine && !thread ? () => setPreview(r) : undefined}
                     trailing={
                       mine ? (
                         <span className="text-[11px] font-semibold text-primary">Yours</span>
                       ) : thread ? (
                         <span className="text-[11px] font-semibold text-primary">Message</span>
-                      ) : undefined
+                      ) : (
+                        <span className="text-[11px] font-semibold text-muted">Claim</span>
+                      )
                     }
                   />
                 )
@@ -196,6 +251,60 @@ export function MapPage() {
           </div>
         </>
       )}
+
+      {preview ? (
+        <div
+          className="fixed inset-0 z-40 flex items-end justify-center bg-ink/35 px-4 pb-8 pt-16 backdrop-blur-sm animate-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="map-claim-title"
+          onClick={() => setPreview(null)}
+        >
+          <div
+            className="glass-strong w-full max-w-md space-y-4 rounded-3xl p-4 shadow-lg"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex gap-3">
+              <div className="h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-primary-light/60">
+                {preview.image_urls?.[0] ? (
+                  <img src={preview.image_urls[0]} alt="" className="h-full w-full object-cover" />
+                ) : null}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="mb-1 flex items-center gap-1.5">
+                  <Badge tone={preview.report_type === 'lost' ? 'lost' : 'found'}>
+                    {preview.report_type}
+                  </Badge>
+                  {timeAgo(preview.event_time ?? preview.created_at) ? (
+                    <span className="text-[11px] text-muted">
+                      {timeAgo(preview.event_time ?? preview.created_at)}
+                    </span>
+                  ) : null}
+                </div>
+                <h2 id="map-claim-title" className="font-display text-lg leading-snug text-ink">
+                  {firstLine(preview.description, 100)}
+                </h2>
+                {preview.holding_note ? (
+                  <p className="mt-1 text-xs text-muted">Holding: {preview.holding_note}</p>
+                ) : null}
+              </div>
+            </div>
+            <div className="flex flex-col gap-2">
+              {claimLabel ? (
+                <Link
+                  to={claimHref(preview)}
+                  className={[buttonBase, buttonVariants.accent, 'w-full py-2.5 text-center'].join(' ')}
+                >
+                  {claimLabel}
+                </Link>
+              ) : null}
+              <Button variant="ghost" type="button" onClick={() => setPreview(null)}>
+                Not this
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

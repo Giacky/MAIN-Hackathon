@@ -171,6 +171,7 @@ class SQLiteRepository:
 
     def save_match(self, match: MatchResult) -> MatchResult:
         shortlisted = match.visual_shortlisted
+        same_object = match.visual_same_object
         with connection(self.database_path) as database:
             database.execute(
                 """
@@ -178,8 +179,9 @@ class SQLiteRepository:
                     lost_report_id, found_report_id, overall_score, text_score,
                     image_score, geo_score, time_score, distance_meters,
                     category_score, image_error, visual_shortlisted,
-                    visual_dino_score, visual_inliers, visual_inlier_ratio
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    visual_dino_score, visual_inliers, visual_inlier_ratio,
+                    visual_same_object
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(lost_report_id, found_report_id) DO UPDATE SET
                     overall_score = excluded.overall_score,
                     text_score = excluded.text_score,
@@ -192,7 +194,8 @@ class SQLiteRepository:
                     visual_shortlisted = excluded.visual_shortlisted,
                     visual_dino_score = excluded.visual_dino_score,
                     visual_inliers = excluded.visual_inliers,
-                    visual_inlier_ratio = excluded.visual_inlier_ratio
+                    visual_inlier_ratio = excluded.visual_inlier_ratio,
+                    visual_same_object = excluded.visual_same_object
                 """,
                 (
                     match.lost_report_id,
@@ -209,6 +212,7 @@ class SQLiteRepository:
                     match.visual_dino_score,
                     match.visual_inliers,
                     match.visual_inlier_ratio,
+                    None if same_object is None else int(bool(same_object)),
                 ),
             )
         return match
@@ -236,12 +240,35 @@ class SQLiteRepository:
             ).fetchall()
         return [row_to_match(row) for row in rows]
 
+    def get_match(self, lost_report_id: str, found_report_id: str) -> MatchResult | None:
+        with connection(self.database_path) as database:
+            row = database.execute(
+                """
+                SELECT * FROM matches
+                WHERE lost_report_id = ? AND found_report_id = ?
+                """,
+                (lost_report_id, found_report_id),
+            ).fetchone()
+        return row_to_match(row) if row else None
+
     def dismiss_match(self, lost_report_id: str, found_report_id: str) -> bool:
         with connection(self.database_path) as database:
             cursor = database.execute(
                 """
                 UPDATE matches
                 SET dismissed = 1
+                WHERE lost_report_id = ? AND found_report_id = ?
+                """,
+                (lost_report_id, found_report_id),
+            )
+        return cursor.rowcount > 0
+
+    def undismiss_match(self, lost_report_id: str, found_report_id: str) -> bool:
+        with connection(self.database_path) as database:
+            cursor = database.execute(
+                """
+                UPDATE matches
+                SET dismissed = 0
                 WHERE lost_report_id = ? AND found_report_id = ?
                 """,
                 (lost_report_id, found_report_id),
@@ -341,6 +368,100 @@ class SQLiteRepository:
                 (now, user_id),
             )
         return cursor.rowcount
+
+    def create_message_notification(
+        self,
+        *,
+        user_id: str,
+        lost_report_id: str,
+        found_report_id: str,
+    ) -> None:
+        """One unread alert per chat message (kind=message; not unique per pair)."""
+        notification = Notification(
+            user_id=user_id,
+            kind="message",
+            lost_report_id=lost_report_id,
+            found_report_id=found_report_id,
+            overall_score=0.0,
+        )
+        with connection(self.database_path) as database:
+            database.execute(
+                """
+                INSERT INTO notifications (
+                    id, user_id, kind, lost_report_id, found_report_id,
+                    overall_score, created_at, read_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    notification.id,
+                    notification.user_id,
+                    notification.kind,
+                    notification.lost_report_id,
+                    notification.found_report_id,
+                    notification.overall_score,
+                    notification.created_at.isoformat(),
+                    None,
+                ),
+            )
+
+    def save_push_subscription(
+        self,
+        *,
+        user_id: str,
+        endpoint: str,
+        p256dh: str,
+        auth: str,
+    ) -> None:
+        now = utc_now().isoformat()
+        with connection(self.database_path) as database:
+            database.execute(
+                """
+                INSERT INTO push_subscriptions (endpoint, user_id, p256dh, auth, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(endpoint) DO UPDATE SET
+                    user_id = excluded.user_id,
+                    p256dh = excluded.p256dh,
+                    auth = excluded.auth,
+                    created_at = excluded.created_at
+                """,
+                (endpoint, user_id, p256dh, auth, now),
+            )
+
+    def delete_push_subscription(self, *, user_id: str, endpoint: str) -> bool:
+        with connection(self.database_path) as database:
+            cursor = database.execute(
+                """
+                DELETE FROM push_subscriptions
+                WHERE user_id = ? AND endpoint = ?
+                """,
+                (user_id, endpoint),
+            )
+        return cursor.rowcount > 0
+
+    def list_push_subscriptions(self, user_id: str) -> list[dict[str, str]]:
+        with connection(self.database_path) as database:
+            rows = database.execute(
+                """
+                SELECT endpoint, p256dh, auth FROM push_subscriptions
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchall()
+        return [
+            {
+                "endpoint": row["endpoint"],
+                "p256dh": row["p256dh"],
+                "auth": row["auth"],
+            }
+            for row in rows
+        ]
+
+    def delete_push_endpoint(self, endpoint: str) -> None:
+        with connection(self.database_path) as database:
+            database.execute(
+                "DELETE FROM push_subscriptions WHERE endpoint = ?",
+                (endpoint,),
+            )
 
     def add_chat_message(self, message: ChatMessage) -> ChatMessage:
         with connection(self.database_path) as database:

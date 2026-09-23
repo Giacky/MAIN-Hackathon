@@ -16,6 +16,9 @@ DINO_MODEL_ID = "facebook/dinov2-small"
 _BACKEND_DINO = "dino_lightglue"
 _BACKEND_MOCK = "mock"
 
+# Once ALIKED/LightGlue warmup fails on MPS, stay on CPU for this process.
+_feature_device_override: str | None = None
+
 
 def use_mock_ml() -> bool:
     """Keep CI and machines without weights on the original placeholder behavior."""
@@ -38,8 +41,15 @@ def inference_device() -> str:
 
 
 def feature_device() -> str:
-    """ALIKED / LightGlue stay on CPU — Kornia on MPS is a likely demo crash."""
-    return "cpu"
+    """ALIKED / LightGlue device. Prefer MPS; may fall back to CPU after warmup failure."""
+    if _feature_device_override is not None:
+        return _feature_device_override
+    return inference_device()
+
+
+def _set_feature_device(device: str) -> None:
+    global _feature_device_override
+    _feature_device_override = device
 
 
 def _forced_image_backend() -> str | None:
@@ -57,10 +67,58 @@ def _forced_image_backend() -> str | None:
     return None
 
 
-@lru_cache(maxsize=1)
-def _kornia_feature_stack() -> tuple[str, object, object] | None:
-    """Return (features_name, extractor, matcher) or None if unavailable."""
-    device = feature_device()
+def _warmup_feature_forward(extractor: object, matcher: object, device: str) -> None:
+    """One dummy ALIKED → LightGlue pass so MPS failures surface at startup."""
+    import torch
+
+    torch_device = torch.device(device)
+    left = torch.rand(1, 3, 64, 64, device=torch_device)
+    right = torch.rand(1, 3, 64, 64, device=torch_device)
+    with torch.inference_mode():
+        left_raw = extractor(left)
+        right_raw = extractor(right)
+        left_dict = _features_to_lightglue_dicts(left_raw, left)
+        right_dict = _features_to_lightglue_dicts(right_raw, right)
+        matcher({"image0": left_dict, "image1": right_dict})
+
+
+def _features_to_lightglue_dicts(feature_batch: object, image_tensor: object) -> dict:
+    """Minimal ALIKED/DISK → LightGlue dict (kept here to avoid import cycles)."""
+    import torch
+
+    feat = feature_batch[0] if isinstance(feature_batch, (list, tuple)) else feature_batch
+    extra: dict[str, object] = {}
+    if isinstance(feat, dict):
+        keypoints = feat["keypoints"]
+        descriptors = feat["descriptors"]
+        for key in ("scales", "oris"):
+            if key in feat:
+                extra[key] = feat[key]
+    else:
+        keypoints = feat.keypoints  # type: ignore[attr-defined]
+        descriptors = feat.descriptors  # type: ignore[attr-defined]
+        for key in ("scales", "oris"):
+            if hasattr(feat, key):
+                extra[key] = getattr(feat, key)
+    if getattr(keypoints, "ndim", 0) == 2:
+        keypoints = keypoints.unsqueeze(0)  # type: ignore[union-attr]
+    if getattr(descriptors, "ndim", 0) == 2:
+        descriptors = descriptors.unsqueeze(0)  # type: ignore[union-attr]
+    for key, value in list(extra.items()):
+        if hasattr(value, "ndim") and value.ndim == 1:  # type: ignore[union-attr]
+            extra[key] = value.unsqueeze(0)  # type: ignore[union-attr]
+    _, _, height, width = image_tensor.shape  # type: ignore[union-attr]
+    return {
+        "keypoints": keypoints,
+        "descriptors": descriptors,
+        "image_size": torch.tensor(
+            [[width, height]], device=image_tensor.device, dtype=torch.float32  # type: ignore[union-attr]
+        ),
+        **extra,
+    }
+
+
+def _build_aliked_stack(device: str) -> tuple[str, object, object] | None:
     try:
         from kornia.feature import ALIKED, LightGlue
     except ImportError:
@@ -77,9 +135,10 @@ def _kornia_feature_stack() -> tuple[str, object, object] | None:
         matcher = LightGlue(features="aliked")
         extractor = extractor.to(device).eval()
         matcher = matcher.to(device).eval()
+        _warmup_feature_forward(extractor, matcher, device)
         return ("aliked", extractor, matcher)
     except Exception:
-        logger.exception("ALIKED failed to load; trying DISK once")
+        logger.exception("ALIKED failed to load or warm up on %s; trying DISK once", device)
 
     try:
         from kornia.feature import DISK, LightGlue as LG
@@ -113,10 +172,38 @@ def _kornia_feature_stack() -> tuple[str, object, object] | None:
                 self._model = self._model.eval()  # type: ignore[attr-defined]
                 return self
 
-        return ("disk", _DiskAdapter(extractor), matcher)
+        adapter = _DiskAdapter(extractor)
+        _warmup_feature_forward(adapter, matcher, device)
+        return ("disk", adapter, matcher)
     except Exception:
-        logger.exception("DISK feature stack also failed to load")
+        logger.exception("DISK feature stack also failed to load on %s", device)
         return None
+
+
+@lru_cache(maxsize=1)
+def _kornia_feature_stack() -> tuple[str, object, object] | None:
+    """Return (features_name, extractor, matcher) or None if unavailable."""
+    preferred = inference_device()
+    stack = _build_aliked_stack(preferred)
+    if stack is not None:
+        _set_feature_device(preferred)
+        logger.info("Feature stack (ALIKED/LightGlue) device=%s", preferred)
+        return stack
+
+    if preferred != "cpu":
+        logger.warning(
+            "ALIKED/LightGlue unavailable on %s; falling back to CPU for this process",
+            preferred,
+        )
+        stack = _build_aliked_stack("cpu")
+        if stack is not None:
+            _set_feature_device("cpu")
+            logger.info("Feature stack (ALIKED/LightGlue) device=cpu (fallback)")
+            return stack
+
+    _set_feature_device("cpu")
+    logger.info("Feature stack (ALIKED/LightGlue) unavailable")
+    return None
 
 
 class _OpenCvSiftExtractor:
@@ -188,8 +275,8 @@ class _OpenCvSiftExtractor:
 
 @lru_cache(maxsize=1)
 def _sift_feature_stack() -> tuple[str, object, object] | None:
-    """SIFT extractor + LightGlue(features='sift'). None if load fails."""
-    device = feature_device()
+    """SIFT extractor + LightGlue(features='sift'). Always CPU (OpenCV SIFT)."""
+    device = "cpu"
     try:
         from kornia.feature import LightGlue
     except ImportError:
@@ -203,6 +290,7 @@ def _sift_feature_stack() -> tuple[str, object, object] | None:
         matcher = LightGlue(features="sift")
         matcher = matcher.to(device).eval()
         extractor = _OpenCvSiftExtractor(max_num_keypoints=1024)
+        logger.info("SIFT stack device=cpu")
         return ("sift", extractor, matcher)
     except Exception:
         logger.exception(
@@ -290,6 +378,9 @@ def warmup_text_models() -> None:
     """Load weights once on the Mac so the first phone request is not a cold start."""
     if use_mock_ml():
         return
+    device = inference_device()
+    logger.info("Classifier device=%s", device)
+    logger.info("Text embedding device=%s", device)
     pipeline = zero_shot_pipeline()
     pipeline(
         "black wallet",
@@ -308,10 +399,12 @@ def warmup_vision_models() -> None:
     """Load DINOv2, rembg, ALIKED/LightGlue, and SIFT+LightGlue if available."""
     if use_mock_ml():
         return
+    logger.info("DINOv2 device=%s", inference_device())
     dino_processor()
     dino_model()
     try:
         rembg_session()
+        logger.info("rembg device=cpu")
     except Exception:
         logger.exception("rembg failed during vision warmup; full-frame crops will be used")
     feature_matcher_stack()

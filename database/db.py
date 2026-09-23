@@ -78,6 +78,7 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 visual_dino_score REAL,
                 visual_inliers INTEGER,
                 visual_inlier_ratio REAL,
+                visual_same_object INTEGER,
                 dismissed INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (lost_report_id, found_report_id)
             );
@@ -90,8 +91,7 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 found_report_id TEXT NOT NULL,
                 overall_score REAL NOT NULL,
                 created_at TEXT NOT NULL,
-                read_at TEXT,
-                UNIQUE (user_id, lost_report_id, found_report_id)
+                read_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS chat_messages (
@@ -121,6 +121,14 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                endpoint TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
             """
         )
         _ensure_columns(
@@ -145,12 +153,50 @@ def initialize_database(database_path: Path = DATABASE_PATH) -> None:
                 "visual_dino_score": "REAL",
                 "visual_inliers": "INTEGER",
                 "visual_inlier_ratio": "REAL",
+                "visual_same_object": "INTEGER",
                 "dismissed": "INTEGER NOT NULL DEFAULT 0",
             },
         )
+        _migrate_notifications_unique(database)
         database.execute(
             """
-            CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_user_pair
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_user_pair_match
             ON notifications (user_id, lost_report_id, found_report_id)
+            WHERE kind = 'match'
             """
         )
+
+
+def _migrate_notifications_unique(database: sqlite3.Connection) -> None:
+    """Allow multiple message alerts per pair; keep match alerts unique.
+
+    Older schemas used UNIQUE (user_id, lost_report_id, found_report_id) on the
+    table, which blocked chat alerts for a pair that already had a match alert.
+    """
+    database.execute("DROP INDEX IF EXISTS idx_notifications_user_pair")
+    row = database.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'notifications'"
+    ).fetchone()
+    sql = (row["sql"] if row is not None else "") or ""
+    if "UNIQUE (user_id, lost_report_id, found_report_id)" not in sql:
+        return
+    database.executescript(
+        """
+        CREATE TABLE notifications_migrated (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            lost_report_id TEXT NOT NULL,
+            found_report_id TEXT NOT NULL,
+            overall_score REAL NOT NULL,
+            created_at TEXT NOT NULL,
+            read_at TEXT
+        );
+        INSERT INTO notifications_migrated
+            SELECT id, user_id, kind, lost_report_id, found_report_id,
+                   overall_score, created_at, read_at
+            FROM notifications;
+        DROP TABLE notifications;
+        ALTER TABLE notifications_migrated RENAME TO notifications;
+        """
+    )

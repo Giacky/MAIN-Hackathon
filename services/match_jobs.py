@@ -63,6 +63,18 @@ def _notify_counterpart(
         found_report_id=match.found_report_id,
         overall_score=match.overall_score,
     )
+    try:
+        from services.push import send_push_to_user
+
+        send_push_to_user(
+            repository,
+            owner_id,
+            title="Possible match",
+            body="A new item may match one of yours.",
+            url=f"/reports/{found.id if lost.user_id == filing_user_id else lost.id}",
+        )
+    except Exception:
+        logger.exception("Web Push for match notification failed")
 
 
 def _open_counterparts(anchor: Report, open_reports: list[Report]) -> list[Report]:

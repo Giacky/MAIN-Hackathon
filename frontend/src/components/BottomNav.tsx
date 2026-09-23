@@ -1,4 +1,6 @@
+import { useMemo } from 'react'
 import { NavLink } from 'react-router-dom'
+import { isUnreadNotification } from '../api/alerts'
 import { useAlerts } from '../auth/AlertsContext'
 
 const items = [
@@ -83,7 +85,16 @@ function AccountIcon({ filled }: { filled: boolean }) {
 
 /** Floating glass capsule with four tabs; the active tab is a primary-light pill. */
 export function BottomNav() {
-  const { unreadCount } = useAlerts()
+  const { notifications } = useAlerts()
+  /** Reports tab badge = how many of the viewer's reports have a circle, not raw alert count. */
+  const dottedReportCount = useMemo(() => {
+    const ids = new Set<string>()
+    for (const n of notifications) {
+      if (!isUnreadNotification(n) || !n.report_id) continue
+      ids.add(n.report_id)
+    }
+    return ids.size
+  }, [notifications])
 
   return (
     <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
@@ -104,12 +115,12 @@ export function BottomNav() {
               <>
                 <span className="relative inline-flex">
                   <item.icon filled={isActive} />
-                  {item.to === '/reports' && unreadCount > 0 ? (
+                  {item.to === '/reports' && dottedReportCount > 0 ? (
                     <span
                       className="absolute -right-2.5 -top-1 min-w-4 rounded-full bg-accent px-1 text-center text-[10px] font-bold leading-4 text-white shadow-[0_2px_8px_rgba(242,140,104,.45)]"
-                      aria-label={`${unreadCount} unread ${unreadCount === 1 ? 'alert' : 'alerts'}`}
+                      aria-label={`${dottedReportCount} ${dottedReportCount === 1 ? 'report' : 'reports'} with unread activity`}
                     >
-                      {unreadCount > 9 ? '9+' : unreadCount}
+                      {dottedReportCount > 9 ? '9+' : dottedReportCount}
                     </span>
                   ) : null}
                 </span>

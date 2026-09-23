@@ -6,7 +6,7 @@ from models.schemas import MatchResult, Report, ReportType
 from services.geo_matching import GeoMatcher
 from services.image_matching import ImageCompareResult, ImageMatcher
 from services.item_type import resolved_item_type
-from services.text_similarity import TextSimilarityService
+from services.text_similarity import TextSimilarityService, apply_type_match_text_floor
 from services.time_matching import TimeMatcher
 
 # Text still leads, but photos and place carry more of the decision.
@@ -94,12 +94,14 @@ def _visual_fields(image: ImageCompareResult) -> dict:
             "visual_dino_score": None,
             "visual_inliers": None,
             "visual_inlier_ratio": None,
+            "visual_same_object": None,
         }
     return {
         "visual_shortlisted": True,
         "visual_dino_score": image.dino_score,
         "visual_inliers": image.inliers,
         "visual_inlier_ratio": image.inlier_ratio,
+        "visual_same_object": image.same_object,
     }
 
 
@@ -141,6 +143,13 @@ class MatchingEngine:
         for found_report in found_list:
             text_score = self.text_matcher.compare(
                 lost_report.description, found_report.description
+            )
+            text_score = apply_type_match_text_floor(
+                text_score,
+                resolved_item_type(lost_report),
+                resolved_item_type(found_report),
+                lost_report.description,
+                found_report.description,
             )
             geo = self.geo_matcher.compare(lost_report, found_report)
             time_score = self.time_matcher.compare(lost_report, found_report)

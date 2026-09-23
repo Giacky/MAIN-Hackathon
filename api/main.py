@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.deps import get_repository
-from api.routers import auth, coordination, demo, health, matches, notifications, reports
+from api.routers import auth, coordination, demo, health, matches, notifications, push, reports
 from services.demo_seed import ensure_demo_data
 from services.match_jobs import enqueue_missing_pairs
 from utils.config import ensure_runtime_directories
@@ -52,6 +52,7 @@ def create_app() -> FastAPI:
     app.include_router(reports.router)
     app.include_router(matches.router)
     app.include_router(notifications.router)
+    app.include_router(push.router)
     app.include_router(coordination.router)
     app.include_router(demo.router)
     return app

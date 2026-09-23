@@ -109,6 +109,7 @@ def row_to_report(row: sqlite3.Row) -> Report:
 
 def row_to_match(row: sqlite3.Row) -> MatchResult:
     shortlisted = _row_value(row, "visual_shortlisted")
+    same_object = _row_value(row, "visual_same_object")
     return MatchResult(
         lost_report_id=row["lost_report_id"],
         found_report_id=row["found_report_id"],
@@ -126,6 +127,9 @@ def row_to_match(row: sqlite3.Row) -> MatchResult:
         visual_dino_score=_row_value(row, "visual_dino_score"),
         visual_inliers=_row_value(row, "visual_inliers"),
         visual_inlier_ratio=_row_value(row, "visual_inlier_ratio"),
+        visual_same_object=(
+            None if same_object is None else bool(same_object)
+        ),
     )
 
 

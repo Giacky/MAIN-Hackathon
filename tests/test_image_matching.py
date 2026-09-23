@@ -10,8 +10,10 @@ os.environ.setdefault("LOST_FOUND_MOCK_ML", "1")
 from services.image_matching import (
     _DINO_WEIGHT,
     _GLUE_WEIGHT,
+    _SAME_OBJECT_DINO_MIN,
     blend_photo_score,
     count_geometric_inliers,
+    same_object_decision,
 )
 
 
@@ -28,6 +30,18 @@ class PhotoBlendTests(unittest.TestCase):
     def test_clamps_dino_on_glue_miss(self) -> None:
         self.assertEqual(blend_photo_score(1.4, 0.0), 1.0)
         self.assertEqual(blend_photo_score(-0.2, 0.0), 0.0)
+
+
+class SameObjectDecisionTests(unittest.TestCase):
+    def test_inliers_lock_counts(self) -> None:
+        self.assertTrue(same_object_decision(0.1, 4))
+        self.assertTrue(same_object_decision(0.0, 10))
+
+    def test_dino_band_without_geometry(self) -> None:
+        self.assertTrue(same_object_decision(_SAME_OBJECT_DINO_MIN, 0))
+        self.assertTrue(same_object_decision(0.47, None))
+        self.assertFalse(same_object_decision(_SAME_OBJECT_DINO_MIN - 0.01, 0))
+        self.assertFalse(same_object_decision(0.07, 3))
 
 
 class GeometricInlierTests(unittest.TestCase):

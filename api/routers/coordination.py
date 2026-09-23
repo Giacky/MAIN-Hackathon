@@ -175,6 +175,26 @@ def post_message(
     message = repository.add_chat_message(
         ChatMessage(match_id=match_id, sender=role, message=text)
     )
+    other = found if role == "lost" else lost
+    if other.user_id and other.user_id != user.id:
+        repository.create_message_notification(
+            user_id=other.user_id,
+            lost_report_id=lost.id,
+            found_report_id=found.id,
+        )
+        try:
+            from services.push import send_push_to_user
+
+            preview = text if len(text) <= 120 else text[:117] + "…"
+            send_push_to_user(
+                repository,
+                other.user_id,
+                title="New message",
+                body=preview,
+                url=f"/pickup/{lost.id}/{found.id}",
+            )
+        except Exception:
+            pass
     return {"message": message_public(message, role)}
 
 

@@ -144,6 +144,8 @@ interface ViewProps {
   reports: Report[]
   /** Ids of the viewer's own reports; those get a "See matches" link in the popup. */
   mineIds?: ReadonlySet<string>
+  /** Open claim preview for someone else's pin (MapPage). */
+  onSelectReport?: (report: Report) => void
   className?: string
 }
 
@@ -224,6 +226,11 @@ export function LocationMap(props: LocationMapProps) {
                             report={report}
                             mine={props.mineIds?.has(report.id) ?? false}
                             radiusMeters={loc.radius_meters}
+                            onClaim={
+                              props.onSelectReport && !props.mineIds?.has(report.id)
+                                ? () => props.onSelectReport?.(report)
+                                : undefined
+                            }
                           />
                         </Popup>
                       </Marker>
@@ -313,10 +320,12 @@ function ReportPopup({
   report,
   mine,
   radiusMeters,
+  onClaim,
 }: {
   report: Report
   mine: boolean
   radiusMeters: number
+  onClaim?: () => void
 }) {
   const photo = report.image_urls?.[0]
   const when = timeAgo(report.event_time ?? report.created_at)
@@ -340,6 +349,14 @@ function ReportPopup({
           >
             View report
           </Link>
+        ) : onClaim ? (
+          <button
+            type="button"
+            onClick={onClaim}
+            className="mt-1.5 inline-block text-[13px] font-semibold text-primary"
+          >
+            {report.report_type === 'found' ? 'This is mine…' : 'I found this…'}
+          </button>
         ) : null}
       </div>
     </div>

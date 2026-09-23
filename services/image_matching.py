@@ -27,6 +27,10 @@ _GLUE_WEIGHT = 0.65
 _MIN_INLIERS = 4
 _INLIER_NORM = 40.0
 _CROP_PAD = 0.08
+# Seeded AirPods pair sits ~0.47 DINOv2; wallet vs AirPods ~0.07. Floor the band
+# in the gap so geometry misses still count as the same object when DINO agrees.
+_SAME_OBJECT_DINO_MIN = 0.35
+_TINY_MASK_AREA_FRAC = 0.02
 _ROTATION_ANGLES = (0, 90, 180, 270)
 _ROTATION_EARLY_STOP = 20
 
@@ -47,10 +51,18 @@ class ImageCompareResult:
     dino_score: float | None = None
     inliers: int | None = None
     inlier_ratio: float | None = None
+    same_object: bool | None = None
 
 
 def _clamp01(value: float) -> float:
     return float(max(0.0, min(1.0, value)))
+
+
+def same_object_decision(dino_cos: float, inliers: int | None) -> bool:
+    """True when LightGlue locks (>=4 inliers) or DINOv2 is in the same-object band."""
+    if inliers is not None and int(inliers) >= _MIN_INLIERS:
+        return True
+    return _clamp01(float(dino_cos)) >= _SAME_OBJECT_DINO_MIN
 
 
 def blend_photo_score(dino_cos: float, glue_score: float) -> float:
@@ -172,10 +184,10 @@ class ImageMatcher:
         anchor_files: list[str],
         prepared: list[tuple[str, list[str]]],
     ) -> dict[str, ImageCompareResult]:
-        import numpy as np
-
         out: dict[str, ImageCompareResult] = {}
-        anchor_embeds = [(path, self._embed_dino(path)) for path in anchor_files]
+        anchor_embeds = [
+            (path, self._embed_dino_variants(path)) for path in anchor_files
+        ]
 
         ranked: list[tuple[str, float, str, str]] = []
         for candidate_id, files in prepared:
@@ -185,9 +197,9 @@ class ImageMatcher:
             best = -1.0
             best_pair = (anchor_files[0], files[0])
             for found_path in files:
-                found_vec = self._embed_dino(found_path)
-                for anchor_path, anchor_vec in anchor_embeds:
-                    cosine = float(np.dot(anchor_vec, found_vec))
+                found_vecs = self._embed_dino_variants(found_path)
+                for anchor_path, anchor_vecs in anchor_embeds:
+                    cosine = _max_cosine(anchor_vecs, found_vecs)
                     if cosine > best:
                         best = cosine
                         best_pair = (anchor_path, found_path)
@@ -202,6 +214,7 @@ class ImageMatcher:
                     score=None,
                     shortlisted=False,
                     dino_score=float(dino_cos),
+                    same_object=None,
                 )
                 continue
 
@@ -232,14 +245,20 @@ class ImageMatcher:
                 dino_score=float(dino_cos),
                 inliers=inliers,
                 inlier_ratio=inlier_ratio,
+                same_object=same_object_decision(dino_cos, inliers),
             )
         return out
 
     def _foreground_crop(self, image_path: str):
+        crop, _tiny = self._foreground_crop_with_meta(image_path)
+        return crop
+
+    def _foreground_crop_with_meta(self, image_path: str) -> tuple[Any, bool]:
         with self._lock:
             cached = self._crop_cache.get(image_path)
             if cached is not None:
-                return cached.copy()
+                crop, tiny = cached
+                return crop.copy(), tiny
 
         from PIL import Image
 
@@ -249,6 +268,7 @@ class ImageMatcher:
             rgb = ImageOps.exif_transpose(image).convert("RGB")
 
         cropped = rgb
+        tiny_mask = False
         try:
             from rembg import remove
 
@@ -269,23 +289,55 @@ class ImageMatcher:
                     right = min(rgb.width, right + pad_x)
                     bottom = min(rgb.height, bottom + pad_y)
                     cropped = rgb.crop((left, top, right, bottom))
+                    mask_area = float(width * height)
+                    frame_area = float(max(1, rgb.width * rgb.height))
+                    tiny_mask = (mask_area / frame_area) < _TINY_MASK_AREA_FRAC
+                else:
+                    tiny_mask = True
+            else:
+                tiny_mask = True
         except Exception:
             logger.info("Foreground crop unavailable for %s; using full frame", image_path)
 
         with self._lock:
-            self._crop_cache[image_path] = cropped.copy()
-        return cropped
+            self._crop_cache[image_path] = (cropped.copy(), tiny_mask)
+        return cropped, tiny_mask
 
-    def _embed_dino(self, image_path: str):
+    def _center_crop(self, image_path: str):
+        from PIL import Image
+        from PIL import ImageOps
+
+        with Image.open(image_path) as image:
+            rgb = ImageOps.exif_transpose(image).convert("RGB")
+        width, height = rgb.size
+        side = min(width, height)
+        left = (width - side) // 2
+        top = (height - side) // 2
+        return rgb.crop((left, top, left + side, top + side))
+
+    def _embed_dino_variants(self, image_path: str) -> list[Any]:
         with self._lock:
             cached = self._dino_cache.get(image_path)
             if cached is not None:
-                return cached
+                return list(cached)
 
+        crop, tiny = self._foreground_crop_with_meta(image_path)
+        vectors = [self._embed_pil(crop)]
+        if tiny:
+            center = self._center_crop(image_path)
+            vectors.append(self._embed_pil(center))
+
+        with self._lock:
+            self._dino_cache[image_path] = tuple(vectors)
+        return vectors
+
+    def _embed_dino(self, image_path: str):
+        return self._embed_dino_variants(image_path)[0]
+
+    def _embed_pil(self, crop: Any):
         import numpy as np
         import torch
 
-        crop = self._foreground_crop(image_path)
         processor = dino_processor()
         model = dino_model()
         inputs = processor(images=crop, return_tensors="pt")
@@ -295,11 +347,7 @@ class ImageMatcher:
             outputs = model(**inputs)
             cls = outputs.last_hidden_state[:, 0]
             cls = torch.nn.functional.normalize(cls, p=2, dim=-1)
-            vector = cls.squeeze(0).detach().cpu().numpy().astype(np.float32)
-
-        with self._lock:
-            self._dino_cache[image_path] = vector
-        return vector
+            return cls.squeeze(0).detach().cpu().numpy().astype(np.float32)
 
     def _lightglue_score(
         self, left_path: str, right_path: str
@@ -343,7 +391,7 @@ class ImageMatcher:
         import torch
         from torchvision.transforms.functional import to_tensor
 
-        device = torch.device(feature_device())
+        device = _module_device(matcher, feature_device())
         left_t = to_tensor(left_img).unsqueeze(0).to(device)
         with torch.inference_mode():
             left_dict = _features_to_lightglue(extractor(left_t), left_t)
@@ -369,7 +417,7 @@ class ImageMatcher:
         import torch
         from torchvision.transforms.functional import to_tensor
 
-        device = torch.device(feature_device())
+        device = _module_device(matcher, feature_device())
         left_t = to_tensor(left_img).unsqueeze(0).to(device)
         with torch.inference_mode():
             left_dict = _features_to_lightglue(extractor(left_t), left_t)
@@ -385,12 +433,46 @@ class ImageMatcher:
         import torch
         from torchvision.transforms.functional import to_tensor
 
-        device = torch.device(feature_device())
+        device = _module_device(matcher, feature_device())
         right_t = to_tensor(right_img).unsqueeze(0).to(device)
         with torch.inference_mode():
             right_dict = _features_to_lightglue(extractor(right_t), right_t)
-            matches = matcher({"image0": left_dict, "image1": right_dict})
-        return _score_lightglue_matches(left_dict, right_dict, matches)
+            left_on_device = _move_feature_dict(left_dict, device)
+            matches = matcher({"image0": left_on_device, "image1": right_dict})
+        return _score_lightglue_matches(left_on_device, right_dict, matches)
+
+
+def _max_cosine(left_vecs: list[Any], right_vecs: list[Any]) -> float:
+    import numpy as np
+
+    best = -1.0
+    for left in left_vecs:
+        for right in right_vecs:
+            cosine = float(np.dot(left, right))
+            if cosine > best:
+                best = cosine
+    return best
+
+
+def _module_device(module: object, fallback: str):
+    import torch
+
+    if hasattr(module, "parameters"):
+        try:
+            return next(module.parameters()).device  # type: ignore[operator]
+        except StopIteration:
+            pass
+    return torch.device(fallback)
+
+
+def _move_feature_dict(feature_dict: dict, device: Any) -> dict:
+    moved: dict[str, Any] = {}
+    for key, value in feature_dict.items():
+        if hasattr(value, "to"):
+            moved[key] = value.to(device)
+        else:
+            moved[key] = value
+    return moved
 
 
 def _features_to_lightglue(feature_batch: Any, image_tensor: Any) -> dict:
@@ -418,12 +500,19 @@ def _features_to_lightglue(feature_batch: Any, image_tensor: Any) -> dict:
     for key, value in list(extra.items()):
         if hasattr(value, "ndim") and value.ndim == 1:
             extra[key] = value.unsqueeze(0)
+    # OpenCV SIFT returns CPU tensors; move them onto the matcher device.
+    device = image_tensor.device
+    keypoints = keypoints.to(device)
+    descriptors = descriptors.to(device)
+    for key, value in list(extra.items()):
+        if hasattr(value, "to"):
+            extra[key] = value.to(device)
     _, _, height, width = image_tensor.shape
     return {
         "keypoints": keypoints,
         "descriptors": descriptors,
         "image_size": torch.tensor(
-            [[width, height]], device=image_tensor.device, dtype=torch.float32
+            [[width, height]], device=device, dtype=torch.float32
         ),
         **extra,
     }

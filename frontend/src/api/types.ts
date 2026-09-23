@@ -59,6 +59,8 @@ export interface VisualEvidence {
   dino_score?: number | null
   inliers?: number | null
   inlier_ratio?: number | null
+  /** When true, photos are treated as the same object even if inliers < 4. */
+  same_object?: boolean | null
 }
 
 export interface MatchItem {

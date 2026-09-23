@@ -20,8 +20,11 @@ const INLIER_FLOOR = 4
 /** One-line photo/category verdict; overall score stays secondary. */
 function matchVerdict(match: MatchItem): string | null {
   const visual = match.visual
+  if (visual?.same_object === true) {
+    return 'Photos look like the same object'
+  }
   if (visual?.shortlisted) {
-    if (visual.inliers != null && visual.inliers >= INLIER_FLOOR) {
+    if (visual.same_object == null && visual.inliers != null && visual.inliers >= INLIER_FLOOR) {
       return 'Photos look like the same object'
     }
     return 'Looks like the same item'
@@ -43,7 +46,9 @@ interface MatchCardProps {
 
 export function MatchCard({ match, anchorType, hasThread = false, onDismiss }: MatchCardProps) {
   const other = anchorType === 'lost' ? match.found : match.lost
-  const photo = other.image_urls?.[0]
+  const mine = anchorType === 'lost' ? match.lost : match.found
+  const otherPhoto = other.image_urls?.[0]
+  const minePhoto = mine.image_urls?.[0]
   const overall = pct(match.overall_score)
   const verdict = matchVerdict(match)
   const [busy, setBusy] = useState(false)
@@ -76,19 +81,30 @@ export function MatchCard({ match, anchorType, hasThread = false, onDismiss }: M
 
   return (
     <Card padded={false} className="overflow-hidden animate-in">
-      <div className="relative aspect-[4/3] bg-primary-light/50">
-        {photo ? (
-          <img src={photo} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted">No photo</div>
-        )}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-linear-to-t from-ink/25 to-transparent" />
-        <Badge
-          tone={other.report_type === 'lost' ? 'lost' : 'found'}
-          className="absolute left-3 top-3 bg-card/80"
-        >
-          {other.report_type}
-        </Badge>
+      <div className="grid grid-cols-2 gap-px bg-hairline/40">
+        <div className="relative aspect-square bg-primary-light/50">
+          {minePhoto ? (
+            <img src={minePhoto} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full items-center justify-center text-xs text-muted">No photo</div>
+          )}
+          <Badge tone={mine.report_type === 'lost' ? 'lost' : 'found'} className="absolute left-2 top-2 bg-card/80">
+            Yours
+          </Badge>
+        </div>
+        <div className="relative aspect-square bg-primary-light/50">
+          {otherPhoto ? (
+            <img src={otherPhoto} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full items-center justify-center text-xs text-muted">No photo</div>
+          )}
+          <Badge
+            tone={other.report_type === 'lost' ? 'lost' : 'found'}
+            className="absolute left-2 top-2 bg-card/80"
+          >
+            {other.report_type}
+          </Badge>
+        </div>
       </div>
 
       <div className="space-y-3 p-4">

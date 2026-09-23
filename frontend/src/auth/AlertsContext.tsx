@@ -26,6 +26,8 @@ interface AlertsContextValue {
   refresh: () => Promise<void>
   markRead: (id: string) => Promise<void>
   markReadForReport: (reportId: string) => Promise<void>
+  /** Mark unread message alerts for a lost/found pickup pair. */
+  markReadForMessagePair: (lostId: string, foundId: string) => Promise<void>
   markAllRead: () => Promise<void>
 }
 
@@ -56,12 +58,41 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
 
   const applyPayload = useCallback((data: NotificationsResponse) => {
     const marked = markedIdsRef.current
-    setNotifications(
-      data.notifications.map((n) =>
-        marked.has(n.id) && isUnreadNotification(n) ? { ...n, read_at: n.read_at ?? new Date().toISOString() } : n,
-      ),
+    const previousIds = new Set(notificationsRef.current.map((n) => n.id))
+    const next = data.notifications.map((n) =>
+      marked.has(n.id) && isUnreadNotification(n) ? { ...n, read_at: n.read_at ?? new Date().toISOString() } : n,
     )
+    setNotifications(next)
     setUnreadCount(unreadFromPayload(data, marked))
+
+    if (
+      typeof Notification !== 'undefined' &&
+      Notification.permission === 'granted' &&
+      previousIds.size > 0
+    ) {
+      for (const n of next) {
+        if (previousIds.has(n.id) || !isUnreadNotification(n) || marked.has(n.id)) continue
+        const title = n.kind === 'message' ? 'New message' : 'Possible match'
+        const body =
+          n.kind === 'message'
+            ? 'Someone replied on a pickup thread.'
+            : 'A new item may match one of yours.'
+        const url =
+          n.kind === 'message'
+            ? `/pickup/${n.lost_report_id}/${n.found_report_id}`
+            : `/reports/${n.report_id ?? n.lost_report_id}`
+        try {
+          const note = new Notification(title, { body, tag: n.id })
+          note.onclick = () => {
+            window.focus()
+            window.location.assign(url)
+            note.close()
+          }
+        } catch {
+          /* ignore Notification constructor failures */
+        }
+      }
+    }
   }, [])
 
   const refresh = useCallback(async () => {
@@ -131,11 +162,32 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const markReadForReport = useCallback(async (reportId: string) => {
+    // Report detail clears match (and other non-message) alerts only; messages clear on the thread.
     const related = notificationsRef.current.filter(
       (n) =>
         !markedIdsRef.current.has(n.id) &&
         isUnreadNotification(n) &&
+        n.kind !== 'message' &&
         (n.lost_report_id === reportId || n.found_report_id === reportId || n.report_id === reportId),
+    )
+    if (related.length === 0) return
+    for (const n of related) markedIdsRef.current.add(n.id)
+    const ids = new Set(related.map((n) => n.id))
+    setNotifications((prev) => withReadAt(prev, ids))
+    setUnreadCount((count) => Math.max(0, count - related.length))
+    await Promise.all(related.map((n) => markNotificationRead(n.id)))
+    const data = await fetchNotifications()
+    applyPayload(data)
+  }, [applyPayload])
+
+  const markReadForMessagePair = useCallback(async (lostId: string, foundId: string) => {
+    const related = notificationsRef.current.filter(
+      (n) =>
+        !markedIdsRef.current.has(n.id) &&
+        isUnreadNotification(n) &&
+        n.kind === 'message' &&
+        n.lost_report_id === lostId &&
+        n.found_report_id === foundId,
     )
     if (related.length === 0) return
     for (const n of related) markedIdsRef.current.add(n.id)
@@ -160,8 +212,24 @@ export function AlertsProvider({ children }: { children: ReactNode }) {
   }, [applyPayload])
 
   const value = useMemo(
-    () => ({ notifications, unreadCount, refresh, markRead, markReadForReport, markAllRead }),
-    [notifications, unreadCount, refresh, markRead, markReadForReport, markAllRead],
+    () => ({
+      notifications,
+      unreadCount,
+      refresh,
+      markRead,
+      markReadForReport,
+      markReadForMessagePair,
+      markAllRead,
+    }),
+    [
+      notifications,
+      unreadCount,
+      refresh,
+      markRead,
+      markReadForReport,
+      markReadForMessagePair,
+      markAllRead,
+    ],
   )
 
   return <AlertsContext.Provider value={value}>{children}</AlertsContext.Provider>

@@ -16,6 +16,7 @@ from api.serializers import classification_public, report_public
 from database.repository import SQLiteRepository
 from models.schemas import LocationGuess, Report, ReportStatus, ReportType, User, as_utc
 from samples.presets import PRESETS
+from services.claim_link import ClaimError, ensure_manual_claim
 from services.classifier import ReportClassifier
 from services.match_jobs import enqueue
 from utils.config import UPLOAD_DIR, ensure_runtime_directories
@@ -171,6 +172,7 @@ async def create_report(
     holding_note: str | None = Form(None),
     locations: str = Form("[]"),
     sample_preset_id: str | None = Form(None),
+    claim_report_id: str | None = Form(None),
     images: list[UploadFile] | None = File(None),
     user: User = Depends(get_current_user),
     repository: SQLiteRepository = Depends(get_repository),
@@ -189,6 +191,26 @@ async def create_report(
 
     location_tuple = _parse_locations(locations)
     first = location_tuple[0] if location_tuple else None
+
+    claim_id = (claim_report_id or "").strip() or None
+    claimed = None
+    if claim_id:
+        from services.claim_link import validate_claim_target, resolve_pair
+
+        claimed = repository.get_report(claim_id)
+        try:
+            claimed = validate_claim_target(claimed=claimed, filer=user)
+            # Type check before insert so we don't orphan a report on bad claim.
+            probe = Report(
+                id="probe",
+                report_type=ReportType(kind),
+                description=description,
+                event_time=when,
+                user_id=user.id,
+            )
+            resolve_pair(probe, claimed)
+        except ClaimError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     try:
         classification = classifier.classify(description)
@@ -220,11 +242,24 @@ async def create_report(
         holding_note=(holding_note or "").strip() or None,
     )
     repository.add_report(report)
+
+    claim_payload = None
+    if claimed is not None:
+        try:
+            claim_payload = ensure_manual_claim(
+                repository, new_report=report, claimed=claimed, filer=user
+            )
+        except ClaimError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     enqueue(report.id)
-    return {
+    result: dict = {
         "report": report_public(report, include_contact=True),
         "classification": classification_public(classification),
     }
+    if claim_payload is not None:
+        result["claim"] = claim_payload
+    return result
 
 
 @router.get("/{report_id}")

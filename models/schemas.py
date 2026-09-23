@@ -112,6 +112,7 @@ class MatchResult:
     visual_dino_score: float | None = None
     visual_inliers: int | None = None
     visual_inlier_ratio: float | None = None
+    visual_same_object: bool | None = None
 
 
 @dataclass(slots=True)

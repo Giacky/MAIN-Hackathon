@@ -30,6 +30,10 @@ export function ReportPage() {
   const editId = routeId ?? params.get('id')
   const isEdit = Boolean(editId)
   const initialType = params.get('type') === 'found' ? 'found' : 'lost'
+  const claimReportId = !isEdit ? params.get('claim') : null
+  const claimLat = params.get('lat')
+  const claimLng = params.get('lng')
+  const claimRadius = params.get('radius')
 
   const [reportType, setReportType] = useState<ReportType>(initialType)
   const [description, setDescription] = useState('')
@@ -38,7 +42,20 @@ export function ReportPage() {
   const [contactPhone, setContactPhone] = useState('')
   const [holdingNote, setHoldingNote] = useState('')
   const [radiusMeters, setRadiusMeters] = useState(200)
-  const [pins, setPins] = useState<LocationPin[]>([])
+  const [pins, setPins] = useState<LocationPin[]>(() => {
+    if (isEdit || claimLat == null || claimLng == null) return []
+    const lat = Number(claimLat)
+    const lng = Number(claimLng)
+    const radius = claimRadius != null ? Number(claimRadius) : 200
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return []
+    return [
+      {
+        latitude: lat,
+        longitude: lng,
+        radius_meters: Number.isFinite(radius) ? radius : 200,
+      },
+    ]
+  })
   const [files, setFiles] = useState<File[]>([])
   const [existingImages, setExistingImages] = useState<string[]>([])
   const [presets, setPresets] = useState<Preset[]>([])
@@ -53,6 +70,22 @@ export function ReportPage() {
     if (isEdit) return
     setReportType(initialType)
   }, [initialType, isEdit])
+
+  useEffect(() => {
+    if (isEdit || !claimLat || !claimLng) return
+    const lat = Number(claimLat)
+    const lng = Number(claimLng)
+    const radius = claimRadius != null ? Number(claimRadius) : 200
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
+    setPins([
+      {
+        latitude: lat,
+        longitude: lng,
+        radius_meters: Number.isFinite(radius) ? radius : 200,
+      },
+    ])
+    if (Number.isFinite(radius)) setRadiusMeters(radius)
+  }, [isEdit, claimLat, claimLng, claimRadius])
 
   useEffect(() => {
     if (isEdit) return
@@ -145,13 +178,22 @@ export function ReportPage() {
       form.append('holding_note', holdingNote.trim())
       form.append('locations', JSON.stringify(pins))
       if (!isEdit && presetId) form.append('sample_preset_id', presetId)
+      if (!isEdit && claimReportId) form.append('claim_report_id', claimReportId)
       files.forEach((f) => form.append('images', f))
 
       const path = isEdit ? `/api/reports/${encodeURIComponent(editId!)}` : '/api/reports'
       const data = await apiFetch<{
         report: Report
         classification?: ClassificationResult
+        claim?: { lost_report_id: string; found_report_id: string }
       }>(path, { method: isEdit ? 'PATCH' : 'POST', body: form })
+
+      if (data.claim?.lost_report_id && data.claim?.found_report_id) {
+        navigate(`/pickup/${data.claim.lost_report_id}/${data.claim.found_report_id}`, {
+          state: { toast: toastFor(data.classification) },
+        })
+        return
+      }
 
       navigate(`/reports/${encodeURIComponent(data.report.id)}`, {
         state: { toast: toastFor(data.classification) },
@@ -203,6 +245,12 @@ export function ReportPage() {
         <Link to={`/reports/${editId}`} className="inline-block text-sm font-medium text-primary">
           Back
         </Link>
+      ) : null}
+
+      {claimReportId ? (
+        <p className="text-sm text-muted">
+          Filing against a map item · place is pre-filled. Saving opens a pickup thread.
+        </p>
       ) : null}
 
       <form className="space-y-5" onSubmit={(e) => void onSubmit(e)}>

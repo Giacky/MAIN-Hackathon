@@ -119,6 +119,7 @@ def _visual_from_match(match: MatchResult) -> dict[str, Any] | None:
         "dino_score": match.visual_dino_score,
         "inliers": match.visual_inliers,
         "inlier_ratio": match.visual_inlier_ratio,
+        "same_object": match.visual_same_object,
     }
 
 
@@ -180,12 +181,17 @@ def message_public(message: ChatMessage, viewer_role: str) -> dict[str, Any]:
     }
 
 
-def notification_public(notification: Notification) -> dict[str, Any]:
+def notification_public(
+    notification: Notification,
+    *,
+    report_id: str | None = None,
+) -> dict[str, Any]:
     return {
         "id": notification.id,
         "kind": notification.kind,
         "lost_report_id": notification.lost_report_id,
         "found_report_id": notification.found_report_id,
+        "report_id": report_id,
         "overall_score": notification.overall_score,
         "created_at": _dt(notification.created_at),
         "read_at": _dt(notification.read_at),

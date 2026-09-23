@@ -323,7 +323,13 @@ class ApiTests(unittest.TestCase):
             else:
                 self.assertEqual(
                     set(match["visual"]),
-                    {"shortlisted", "dino_score", "inliers", "inlier_ratio"},
+                    {
+                        "shortlisted",
+                        "dino_score",
+                        "inliers",
+                        "inlier_ratio",
+                        "same_object",
+                    },
                 )
                 self.assertIsInstance(match["visual"]["shortlisted"], bool)
         phone_match = next(
@@ -766,6 +772,7 @@ class ApiTests(unittest.TestCase):
         )
         self.assertIsNotNone(note)
         self.assertEqual(note["kind"], "match")
+        self.assertEqual(note["report_id"], DEMO_LOST_ID)
         self.assertIsNone(note["read_at"])
         self.assertGreater(note["overall_score"], 0)
         self.assertGreaterEqual(body["unread_count"], 1)
@@ -786,6 +793,147 @@ class ApiTests(unittest.TestCase):
         cleared_body = cleared.json()
         self.assertEqual(cleared_body["unread_count"], 0)
         self.assertTrue(all(item["read_at"] for item in cleared_body["notifications"]))
+
+    def test_claim_report_creates_manual_link_and_pair(self) -> None:
+        """POST /api/reports with claim_report_id links opposite types and returns claim ids."""
+        register = self.client.post(
+            "/api/auth/register",
+            json={
+                "display_name": "Claimer",
+                "email": "claimer@example.com",
+                "password": "pass",
+            },
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        locations = json.dumps(
+            [{"latitude": 50.8514, "longitude": 5.6900, "radius_meters": 200}]
+        )
+        created = self.client.post(
+            "/api/reports",
+            data={
+                "report_type": "lost",
+                "description": "Black leather wallet, this is mine from the map.",
+                "event_time": datetime.now(timezone.utc).isoformat(),
+                "prefer_anonymous": "false",
+                "locations": locations,
+                "claim_report_id": DEMO_FOUND_LIBRARY_ID,
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        body = created.json()
+        self.assertIn("claim", body)
+        self.assertEqual(body["claim"]["found_report_id"], DEMO_FOUND_LIBRARY_ID)
+        self.assertEqual(body["claim"]["lost_report_id"], body["report"]["id"])
+        lost_id = body["claim"]["lost_report_id"]
+        match = self.repository.get_match(lost_id, DEMO_FOUND_LIBRARY_ID)
+        self.assertIsNotNone(match)
+        self.assertGreater(match.overall_score, 0)
+
+        pickup = self.client.get(f"/api/coordination/{lost_id}/{DEMO_FOUND_LIBRARY_ID}")
+        self.assertEqual(pickup.status_code, 200, pickup.text)
+        self.assertEqual(pickup.json()["role"], "lost")
+
+        bad = self.client.post(
+            "/api/reports",
+            data={
+                "report_type": "found",
+                "description": "Wrong type for this claim.",
+                "event_time": datetime.now(timezone.utc).isoformat(),
+                "locations": locations,
+                "claim_report_id": DEMO_FOUND_LIBRARY_ID,
+            },
+        )
+        self.assertEqual(bad.status_code, 400, bad.text)
+
+    def test_claim_undismisses_existing_match(self) -> None:
+        from models.schemas import MatchResult, Report, ReportType
+        from services.claim_link import ensure_manual_claim
+
+        filer = self.repository.get_user_by_email("mia@demo.local")
+        assert filer is not None
+        claimed = self.repository.get_report(DEMO_FOUND_LIBRARY_ID)
+        assert claimed is not None
+        new_lost = Report(
+            report_type=ReportType.LOST,
+            description="Manual claim undismiss test wallet.",
+            user_id=filer.id,
+        )
+        self.repository.add_report(new_lost)
+        self.repository.save_match(
+            MatchResult(
+                lost_report_id=new_lost.id,
+                found_report_id=DEMO_FOUND_LIBRARY_ID,
+                overall_score=0.8,
+                text_score=0.8,
+                geo_score=0.5,
+                time_score=0.5,
+            )
+        )
+        self.assertTrue(
+            self.repository.dismiss_match(new_lost.id, DEMO_FOUND_LIBRARY_ID)
+        )
+        self.assertIsNone(
+            next(
+                (
+                    m
+                    for m in self.repository.list_matches_for_report(new_lost.id)
+                    if m.found_report_id == DEMO_FOUND_LIBRARY_ID
+                ),
+                None,
+            )
+        )
+        ensure_manual_claim(
+            self.repository, new_report=new_lost, claimed=claimed, filer=filer
+        )
+        restored = self.repository.get_match(new_lost.id, DEMO_FOUND_LIBRARY_ID)
+        self.assertIsNotNone(restored)
+        listed = self.repository.list_matches_for_report(new_lost.id)
+        self.assertTrue(
+            any(m.found_report_id == DEMO_FOUND_LIBRARY_ID for m in listed)
+        )
+        # Existing ML score must not be overwritten by the placeholder.
+        self.assertAlmostEqual(restored.overall_score, 0.8)
+
+    def test_message_creates_notification_for_counterpart(self) -> None:
+        self._login("alex@demo.local")
+        sent = self.client.post(
+            f"/api/coordination/{DEMO_LOST_ID}/{DEMO_FOUND_LIBRARY_ID}/messages",
+            json={"message": "Can we meet at the desk?"},
+        )
+        self.assertEqual(sent.status_code, 200, sent.text)
+
+        self.client.post("/api/auth/logout")
+        self._login("sam@demo.local")
+        notes = self.client.get("/api/notifications")
+        self.assertEqual(notes.status_code, 200, notes.text)
+        message_notes = [
+            item
+            for item in notes.json()["notifications"]
+            if item["kind"] == "message"
+            and item["lost_report_id"] == DEMO_LOST_ID
+            and item["found_report_id"] == DEMO_FOUND_LIBRARY_ID
+        ]
+        self.assertGreaterEqual(len(message_notes), 1)
+        self.assertIsNone(message_notes[0]["read_at"])
+
+    def test_push_vapid_public_key_endpoint(self) -> None:
+        response = self.client.get("/api/push/vapid-public-key")
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertIn("configured", body)
+        self.assertIn("public_key", body)
+        self.assertFalse(body["configured"])
+
+        self.assertEqual(self.client.post("/api/push/subscribe", json={}).status_code, 401)
+        self._login("alex@demo.local")
+        blocked = self.client.post(
+            "/api/push/subscribe",
+            json={
+                "endpoint": "https://example.com/push/1",
+                "keys": {"p256dh": "x", "auth": "y"},
+            },
+        )
+        self.assertEqual(blocked.status_code, 503, blocked.text)
 
     def test_health_reports_mock_backend(self) -> None:
         response = self.client.get("/api/health")

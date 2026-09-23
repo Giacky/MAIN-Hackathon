@@ -14,6 +14,7 @@ from services.ml_runtime import (
     image_backend,
     inference_device,
     rembg_session,
+    sift_matcher_stack,
     use_mock_ml,
     warmup_text_models,
 )
@@ -72,10 +73,14 @@ def _run_warmup() -> None:
         # the exact objects the first real ranking request will hit. A failed
         # loader leaves that model "failed"; photo scores then come back as
         # None with an image_error and ranking continues on text/place/time.
+        # Device for each stack is logged inside warmup_text_models /
+        # feature_matcher_stack / rembg path (text+classifier+dino on
+        # inference_device; features on feature_device with MPS→CPU fallback;
+        # rembg and SIFT stay on CPU).
         for key, loader in (
             ("dino", _try_load_dino),
             ("features", feature_matcher_stack),
-            ("segmenter", rembg_session),
+            ("segmenter", _try_load_rembg),
         ):
             _set_many({key: "warming"})
             try:
@@ -91,8 +96,16 @@ def _run_warmup() -> None:
 
 
 def _try_load_dino() -> None:
+    logger.info("DINOv2 device=%s", inference_device())
     dino_processor()
     dino_model()
+
+
+def _try_load_rembg() -> None:
+    rembg_session()
+    logger.info("rembg device=cpu")
+    # Prime optional SIFT fallback; OpenCV SIFT stays on CPU.
+    sift_matcher_stack()
 
 
 def start_warmup() -> str:

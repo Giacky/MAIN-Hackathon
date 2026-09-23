@@ -30,7 +30,8 @@ class SkeletonSmokeTests(unittest.TestCase):
 
         self.assertIn("mock", classification.category)
         self.assertEqual(matches[0].found_report_id, found.id)
-        self.assertEqual(matches[0].text_score, 0.5)
+        # Mock embeddings are 0.5; same-type floor lifts wallet↔wallet.
+        self.assertEqual(matches[0].text_score, 0.72)
         self.assertIsNone(matches[0].image_score)
         self.assertIsNone(matches[0].image_error)
 
@@ -276,6 +277,62 @@ class TextCalibrationTests(unittest.TestCase):
 
     def test_black_wallet_vs_black_bag_raw_is_not_a_match(self) -> None:
         self.assertLess(calibrate_text_cosine(0.789), 0.35)
+
+
+class TypeMatchTextFloorTests(unittest.TestCase):
+    def test_same_type_floors_weak_calibrated_score(self) -> None:
+        from services.text_similarity import apply_type_match_text_floor
+
+        # Color conflict (black vs blue) takes a small cut off the floor.
+        floored = apply_type_match_text_floor(
+            0.05, "mouse", "mouse", "black mouse", "blue wireless mouse"
+        )
+        self.assertGreaterEqual(floored, 0.60)
+        self.assertLess(floored, 0.72)
+
+        no_color = apply_type_match_text_floor(
+            0.05, "mouse", "mouse", "wireless mouse", "office mouse"
+        )
+        self.assertGreaterEqual(no_color, 0.72)
+
+    def test_color_conflict_applies_small_penalty(self) -> None:
+        from services.text_similarity import apply_type_match_text_floor
+
+        same_color = apply_type_match_text_floor(
+            0.0, "mouse", "mouse", "black mouse", "black wireless mouse"
+        )
+        conflict = apply_type_match_text_floor(
+            0.0, "mouse", "mouse", "black mouse", "blue wireless mouse"
+        )
+        self.assertGreater(same_color, conflict)
+        self.assertAlmostEqual(conflict, same_color - 0.12, places=5)
+
+    def test_different_types_are_unchanged(self) -> None:
+        from services.text_similarity import apply_type_match_text_floor
+
+        self.assertEqual(
+            apply_type_match_text_floor(
+                0.05, "mouse", "keys", "black mouse", "black keyboard"
+            ),
+            0.05,
+        )
+
+
+class ItemTypeInferenceTests(unittest.TestCase):
+    def test_electronics_category_infers_from_description(self) -> None:
+        from models.schemas import Report, ReportType
+        from services.item_type import infer_item_type, resolved_item_type
+
+        self.assertEqual(infer_item_type("black wireless mouse"), "mouse")
+        self.assertEqual(infer_item_type("USB-C charger"), "charger")
+        self.assertEqual(infer_item_type("folding umbrella"), "umbrella")
+        self.assertEqual(infer_item_type("over-ear headphones"), "headphones")
+        report = Report(
+            report_type=ReportType.LOST,
+            description="White AirPods case",
+            category="electronics",
+        )
+        self.assertEqual(resolved_item_type(report), "earbuds")
 
 
 if __name__ == "__main__":

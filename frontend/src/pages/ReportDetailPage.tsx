@@ -275,15 +275,17 @@ export function ReportDetailPage() {
 
       <section className="space-y-3">
         <h2 className="font-display text-lg text-ink">
-          {count != null && !ranking
-            ? `${count} possible ${count === 1 ? 'match' : 'matches'}`
-            : 'Possible matches'}
+          {ranking
+            ? 'Checking for matches'
+            : count != null
+              ? `${count} possible ${count === 1 ? 'match' : 'matches'}`
+              : 'Possible matches'}
         </h2>
         {ranking ? (
           <div
             className="h-1 overflow-hidden rounded-full bg-primary-light"
             role="progressbar"
-            aria-label="Ranking matches"
+            aria-label="Checking for matches"
           >
             <div className="match-indeterminate-bar h-full w-1/3 rounded-full bg-primary" />
           </div>
@@ -313,6 +315,8 @@ export function ReportDetailPage() {
               />
             ))}
           </div>
+        ) : ranking ? (
+          <p className="text-sm text-muted">Looking for nearby reports…</p>
         ) : null}
       </section>
 
@@ -327,7 +331,7 @@ export function ReportDetailPage() {
             <span>
               Where
               <span className="ml-2 text-xs font-normal text-muted">
-                {pins.length === 1 ? '1 pin' : `${pins.length} pins`}
+                {pins.length === 1 ? '1 place' : `${pins.length} places`}
               </span>
             </span>
             <svg
